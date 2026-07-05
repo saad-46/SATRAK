@@ -1,0 +1,15 @@
+{
+  "name": "@satrak/config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./eslint": "./eslint-preset.mjs",
+    "./tsconfig": "./tsconfig.base.json"
+  },
+  "scripts": {
+    "lint": "echo \"(config) nothing to lint\"",
+    "typecheck": "echo \"(config) no types\"",
+    "test": "echo \"(config) no tests\""
+  }
+}

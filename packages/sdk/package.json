@@ -1,0 +1,20 @@
+{
+  "name": "@satrak/sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint": "echo \"(sdk) no lint yet\"",
+    "typecheck": "tsc --noEmit",
+    "test": "echo \"(sdk) no tests yet\"",
+    "generate": "echo \"(sdk) codegen from OpenAPI wired up in a later epic\""
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}

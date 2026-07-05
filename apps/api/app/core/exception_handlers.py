@@ -1,17 +1,15 @@
-"""Exception handlers producing a single, consistent error envelope.
+"""Exception handlers producing RFC 9457 Problem Details responses.
 
-All error responses share the shape::
+Four layers are handled uniformly into ``application/problem+json``:
 
-    {"error": {"code": "...", "message": "...", "details": {...},
-               "request_id": "..."}}
-
-so clients handle failures uniformly regardless of origin (deliberate AppError,
-request-validation failure, or an unhandled crash).
+* :class:`~app.core.exceptions.AppError` — deliberate application errors.
+* :class:`~app.shared.domain.errors.DomainError` — domain-rule violations raised
+  deep in the model, mapped to a transport status via ``DOMAIN_ERROR_STATUS``.
+* request validation failures — 422 with the field errors attached.
+* anything else — a generic 500 that never leaks internals.
 """
 
 from __future__ import annotations
-
-from typing import Any
 
 import structlog
 from fastapi import FastAPI, Request
@@ -19,7 +17,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.core.exceptions import AppError
+from app.core.exceptions import DOMAIN_ERROR_STATUS, AppError
+from app.core.problem_details import PROBLEM_CONTENT_TYPE, ProblemDetail
+from app.shared.domain.errors import DomainError
 
 logger = structlog.get_logger("api.error")
 
@@ -28,60 +28,96 @@ def _current_request_id() -> str | None:
     return structlog.contextvars.get_contextvars().get("request_id")
 
 
-def _envelope(
-    code: str, message: str, status_code: int, details: dict[str, Any] | None = None
-) -> JSONResponse:
+def _title_from_code(code: str) -> str:
+    return code.replace("_", " ").title()
+
+
+def _problem_response(problem: ProblemDetail) -> JSONResponse:
     return JSONResponse(
-        status_code=status_code,
-        content={
-            "error": {
-                "code": code,
-                "message": message,
-                "details": details or {},
-                "request_id": _current_request_id(),
-            }
-        },
+        status_code=problem.status,
+        content=problem.model_dump(exclude_none=True),
+        media_type=PROBLEM_CONTENT_TYPE,
     )
 
 
-async def app_error_handler(_: Request, exc: AppError) -> JSONResponse:
+async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     if exc.status_code >= 500:
         logger.error("app_error", code=exc.code, message=exc.message)
-    return _envelope(exc.code, exc.message, exc.status_code, exc.details)
+    return _problem_response(
+        ProblemDetail(
+            title=_title_from_code(exc.code),
+            status=exc.status_code,
+            detail=exc.message,
+            instance=request.url.path,
+            code=exc.code,
+            request_id=_current_request_id(),
+            errors=[exc.details] if exc.details else None,
+        )
+    )
 
 
-async def http_exception_handler(_: Request, exc: StarletteHTTPException) -> JSONResponse:
-    return _envelope(
-        code=f"http_{exc.status_code}",
-        message=str(exc.detail),
-        status_code=exc.status_code,
+async def domain_error_handler(request: Request, exc: DomainError) -> JSONResponse:
+    status = DOMAIN_ERROR_STATUS.get(exc.code, 422)
+    return _problem_response(
+        ProblemDetail(
+            title=_title_from_code(exc.code),
+            status=status,
+            detail=exc.message,
+            instance=request.url.path,
+            code=exc.code,
+            request_id=_current_request_id(),
+            errors=[exc.details] if exc.details else None,
+        )
+    )
+
+
+async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    return _problem_response(
+        ProblemDetail(
+            title=_title_from_code(f"http_{exc.status_code}"),
+            status=exc.status_code,
+            detail=str(exc.detail),
+            instance=request.url.path,
+            code=f"http_{exc.status_code}",
+            request_id=_current_request_id(),
+        )
     )
 
 
 async def validation_exception_handler(
-    _: Request, exc: RequestValidationError
+    request: Request, exc: RequestValidationError
 ) -> JSONResponse:
-    return _envelope(
-        code="validation_error",
-        message="Request validation failed.",
-        status_code=422,
-        details={"errors": exc.errors()},
+    return _problem_response(
+        ProblemDetail(
+            title="Validation Error",
+            status=422,
+            detail="Request validation failed.",
+            instance=request.url.path,
+            code="validation_error",
+            request_id=_current_request_id(),
+            errors=[dict(e) for e in exc.errors()],
+        )
     )
 
 
-async def unhandled_exception_handler(_: Request, exc: Exception) -> JSONResponse:
-    # Never leak internals: log the full trace, return a generic message.
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("unhandled_exception")
-    return _envelope(
-        code="internal_error",
-        message="An unexpected error occurred.",
-        status_code=500,
+    return _problem_response(
+        ProblemDetail(
+            title="Internal Server Error",
+            status=500,
+            detail="An unexpected error occurred.",
+            instance=request.url.path,
+            code="internal_error",
+            request_id=_current_request_id(),
+        )
     )
 
 
 def register_exception_handlers(app: FastAPI) -> None:
     """Wire all handlers onto the application."""
     app.add_exception_handler(AppError, app_error_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(DomainError, domain_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(StarletteHTTPException, http_exception_handler)  # type: ignore[arg-type]
     app.add_exception_handler(RequestValidationError, validation_exception_handler)  # type: ignore[arg-type]
     app.add_exception_handler(Exception, unhandled_exception_handler)

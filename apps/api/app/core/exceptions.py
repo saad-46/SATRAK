@@ -70,3 +70,23 @@ class ServiceUnavailableError(AppError):
     code = "service_unavailable"
     message = "A required dependency is currently unavailable."
     status_code = 503
+
+
+class InfrastructureError(AppError):
+    """A downstream infrastructure dependency (db, cache, storage) failed."""
+
+    code = "infrastructure_error"
+    message = "An infrastructure dependency failed."
+    status_code = 503
+
+
+# Maps a domain-error ``code`` to the HTTP status the boundary should surface.
+# Domain errors are transport-agnostic; this table is the single place the app
+# layer decides how each becomes an HTTP response.
+DOMAIN_ERROR_STATUS: dict[str, int] = {
+    "invariant_violation": 422,
+    "value_validation_error": 422,
+    "business_rule_violation": 422,
+    "concurrency_conflict": 409,
+    "domain_error": 422,
+}

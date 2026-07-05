@@ -8,8 +8,12 @@ SATRAK uses annotated Git tags for releases. Pre-1.0 the platform ships
 Run the automated portion first:
 
 ```bash
-bash scripts/verify-release.sh    # or: make check (from repo root)
+bash scripts/verify-release.sh    # runs the gates below + format-check + tree-clean
 ```
+
+(`make check` runs a subset — lint, types, contracts, tests, security — but not
+the `ruff format --check` or working-tree-clean checks that `verify-release.sh`
+adds, so use the script for release verification.)
 
 Every box below is either verified by that script (**auto**) or must be checked
 manually (**manual**).

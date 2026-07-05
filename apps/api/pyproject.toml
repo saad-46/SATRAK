@@ -84,7 +84,7 @@ source = ["app"]
 omit = ["app/main.py", "alembic/*"]
 
 [tool.coverage.report]
-# A real gate, with headroom below the current ~84%. Abstract Protocol/interface
+# A real gate, with headroom below the current ~86%. Abstract Protocol/interface
 # bodies and TYPE_CHECKING blocks are excluded so interface-only ports (whose
 # implementations land in later epics) don't unfairly depress the number.
 fail_under = 80

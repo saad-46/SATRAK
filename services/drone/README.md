@@ -15,10 +15,12 @@ Operations epic.
 
 ## Status — ADR-0003 (Modular Monolith First)
 
-This bounded context is **currently implemented in `apps/api/app/contexts/drone/`**
-(the modular monolith). This directory is its **reserved extraction target**: when
-sustained load, dedicated team ownership, or a data-residency requirement justifies a
-separate deployable, the context is extracted here as its own FastAPI app +
-`pyproject.toml`, per the extraction strategy in
-[ADR-0003](../../docs/adr/0003-modular-monolith-first.md). Until then this directory
-stays intentionally empty — **`apps/api/app/contexts/drone` is authoritative.**
+This bounded context is **reserved**, not yet implemented. Its boundary is held as
+a placeholder at `apps/api/app/contexts/drone/` in the modular monolith; the domain
+model is built in the context's dedicated epic (only `core`, `identity`, and
+`organization` are implemented today). This directory (`services/drone`) is the
+**reserved extraction target** for the `drone` context: when sustained load,
+dedicated team ownership, or a data-residency requirement justifies a separate
+deployable, it is extracted here as its own FastAPI app + `pyproject.toml` per the
+strategy in [ADR-0003](../../docs/adr/0003-modular-monolith-first.md). Until then,
+**`apps/api/app/contexts/drone` is the authoritative home** for the boundary.

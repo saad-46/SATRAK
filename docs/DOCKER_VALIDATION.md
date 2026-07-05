@@ -12,23 +12,24 @@ Reviewed: `apps/api/Dockerfile`, `apps/web/Dockerfile`,
 `infra/docker-compose/docker-compose.yml`,
 `infra/docker-compose/db-init/01-init-postgis.sql`.
 
-| Area           | Finding                                                                                 | Status                   |
-| -------------- | --------------------------------------------------------------------------------------- | ------------------------ |
-| **API image**  | Multi-stage (builder → slim runtime); no build toolchain in final image                 | ✅ good                  |
-| **API image**  | Runs as non-root `satrak` user                                                          | ✅ good                  |
-| **API image**  | GDAL/GEOS runtime libs present for GeoAlchemy2/Shapely                                  | ✅ good                  |
-| **API image**  | `curl` present → `HEALTHCHECK` can run                                                  | ✅ good                  |
-| **API image**  | `HEALTHCHECK` hits `/api/v1/health/live`                                                | ✅ good                  |
-| **Web image**  | Node 20 slim base                                                                       | ✅ good                  |
-| **Compose**    | Healthchecks on postgis, redis, api                                                     | ✅ good                  |
-| **Compose**    | `depends_on: condition: service_healthy` for api→(postgis,redis)                        | ✅ correct startup order |
-| **Compose**    | Named volumes for postgis/redis/node_modules                                            | ✅ persistent + fast     |
-| **Compose**    | PostGIS init SQL mounted read-only to `docker-entrypoint-initdb.d`                      | ✅ good                  |
-| **Compose**    | Env via `${VAR:-default}` with dev defaults                                             | ✅ 12-factor             |
-| **Compose**    | DB URL uses `postgresql+asyncpg://` (async driver)                                      | ✅ matches app           |
-| **Networking** | Services resolve by name (`postgis`, `redis`) on the default compose network            | ✅ good                  |
-| **Secrets**    | Only dev-default passwords in compose; real secrets via env/secrets-manager (12-factor) | ✅ acceptable for local  |
-| **Migrations** | Not auto-run on api start (compose mounts `alembic/` but `command` is uvicorn)          | ⚠️ see note              |
+| Area                 | Finding                                                                                                                                    | Status                   |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------ |
+| **API image**        | Multi-stage (builder → slim runtime); no build toolchain in final image                                                                    | ✅ good                  |
+| **API image**        | Runs as non-root `satrak` user                                                                                                             | ✅ good                  |
+| **API image**        | GDAL/GEOS runtime libs present for GeoAlchemy2/Shapely                                                                                     | ✅ good                  |
+| **API image**        | `curl` present → `HEALTHCHECK` can run                                                                                                     | ✅ good                  |
+| **API image**        | `HEALTHCHECK` hits `/api/v1/health/live`                                                                                                   | ✅ good                  |
+| **Web image (prod)** | `apps/web/Dockerfile` multi-stage, Node 20 slim, standalone output (gated on `BUILD_STANDALONE=true`)                                      | ✅ good                  |
+| **Web (compose)**    | Compose runs `node:20-slim` with an inline `pnpm install`/dev server (HMR), **not** the prod Dockerfile — an intentional dev-vs-prod split | ✅ by design (noted)     |
+| **Compose**          | Healthchecks on postgis, redis, api                                                                                                        | ✅ good                  |
+| **Compose**          | `depends_on: condition: service_healthy` for api→(postgis,redis)                                                                           | ✅ correct startup order |
+| **Compose**          | Named volumes for postgis/redis/node_modules                                                                                               | ✅ persistent + fast     |
+| **Compose**          | PostGIS init SQL mounted read-only to `docker-entrypoint-initdb.d`                                                                         | ✅ good                  |
+| **Compose**          | Env via `${VAR:-default}` with dev defaults                                                                                                | ✅ 12-factor             |
+| **Compose**          | DB URL uses `postgresql+asyncpg://` (async driver)                                                                                         | ✅ matches app           |
+| **Networking**       | Services resolve by name (`postgis`, `redis`) on the default compose network                                                               | ✅ good                  |
+| **Secrets**          | Only dev-default passwords in compose; real secrets via env/secrets-manager (12-factor)                                                    | ✅ acceptable for local  |
+| **Migrations**       | Not auto-run on api start (compose mounts `alembic/` but `command` is uvicorn)                                                             | ⚠️ see note              |
 
 **Note (migrations on startup):** the compose `api` service starts uvicorn
 directly and does **not** run `alembic upgrade head` first. For local dev this is

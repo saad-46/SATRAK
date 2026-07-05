@@ -33,8 +33,9 @@ ones.
 - **`core/`** holds cross-cutting concerns (config, logging, error mapping,
   metrics) used by the boundary layers.
 
-The rule is enforceable with an import linter as the codebase grows; today it is
-maintained by construction (the shared kernel imports only the standard library).
+The rule is **machine-enforced today by import-linter** in CI (contracts in
+`pyproject.toml`, `[tool.importlinter]`), which fails the build on any outward
+dependency — see the "Deployment topology" section below.
 
 ## Folder structure
 

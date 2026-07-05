@@ -42,7 +42,7 @@ The API follows clean architecture (`api → services → repositories → db`, 
 | Database       | PostgreSQL + PostGIS                                                                                                |
 | Cache / queues | Redis                                                                                                               |
 | Infrastructure | Docker · Docker Compose · Kubernetes (future) · GitHub Actions                                                      |
-| Tooling        | pnpm workspaces · Turborepo · Ruff · Black · isort · ESLint · Prettier · Husky · lint-staged                        |
+| Tooling        | pnpm workspaces · Turborepo · Ruff (lint+format) · mypy · ESLint · Prettier · Husky · lint-staged                   |
 | Testing        | Pytest · Vitest · Playwright                                                                                        |
 
 Full rationale for each choice is in [TDD.md](TDD.md) and [ENGINEERING_BLUEPRINT.md](ENGINEERING_BLUEPRINT.md).
@@ -115,7 +115,7 @@ All commands run from the repo root via the `Makefile` (cross-language) or pnpm/
 | `make up` / `make down`              | Start / stop the Docker stack                |
 | `make migrate`                       | Apply Alembic migrations to head             |
 | `make lint`                          | Lint everything (ESLint + Ruff)              |
-| `make format`                        | Format everything (Prettier + Black + isort) |
+| `make format`                        | Format everything (Prettier + Ruff)          |
 | `make typecheck`                     | Type-check everything (tsc + mypy)           |
 | `make test`                          | Run all tests (Vitest + Pytest)              |
 | `pnpm --filter @satrak/web <script>` | Target the web app (dev/build/test/test:e2e) |
@@ -152,7 +152,7 @@ secrets manager as env vars; `.env*` files are for local development only.
 
 - **Commits:** [Conventional Commits](https://www.conventionalcommits.org/) enforced by commitlint (see `commitlint.config.mjs`).
 - **Branching:** trunk-based; short-lived `feature/*` and `fix/*` branches merged into `main` via PR.
-- **Quality gates:** Husky pre-commit runs lint-staged (Prettier/ESLint/Ruff/Black/isort); CI runs lint + typecheck + tests + build before merge.
+- **Quality gates:** Husky pre-commit runs lint-staged (Prettier/ESLint on JS/MD) + commitlint; CI enforces the full Python gate — Ruff (lint+format), mypy, import-linter, pytest, bandit, pip-audit — plus web build, CodeQL, gitleaks, and migration validation before merge.
 
 ## Documentation
 

@@ -6,7 +6,7 @@ directly, so wiring stays centralized and is trivial to override in tests.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,7 +22,7 @@ def get_app_settings(request: Request) -> Settings:
     so a test (or an embedding process) that builds the app with custom settings
     gets those exact settings in every endpoint.
     """
-    return request.app.state.settings
+    return cast(Settings, request.app.state.settings)
 
 
 SettingsDep = Annotated[Settings, Depends(get_app_settings)]

@@ -78,7 +78,7 @@ class Entity:
 
     # --- Identity semantics --------------------------------------------------
     def __eq__(self, other: object) -> bool:
-        return type(self) is type(other) and self.id == other.id  # type: ignore[attr-defined]
+        return isinstance(other, Entity) and type(self) is type(other) and self.id == other.id
 
     def __hash__(self) -> int:
         return hash((type(self).__name__, self.id))

@@ -7,7 +7,7 @@ implementation delegates to the app's structlog configuration.
 
 from __future__ import annotations
 
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, cast, runtime_checkable
 
 
 @runtime_checkable
@@ -30,4 +30,4 @@ class StructlogLoggerFactory:
     def get_logger(self, name: str) -> Logger:
         import structlog
 
-        return structlog.get_logger(name)  # type: ignore[return-value]
+        return cast("Logger", structlog.get_logger(name))

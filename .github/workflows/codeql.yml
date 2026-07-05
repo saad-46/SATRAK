@@ -27,18 +27,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           queries: security-and-quality
       - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+        uses: github/codeql-action/autobuild@v4
 
       # Run the analysis but DO NOT upload from here — write SARIF to a dir so the
       # upload can be attempted separately and made non-fatal. This keeps the
       # analysis running even when GitHub Code Scanning is not enabled on the repo.
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
           upload: false
@@ -65,7 +65,7 @@ jobs:
       - name: Upload SARIF to Code Scanning (non-fatal if disabled)
         id: upload_sarif
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: sarif-results
           category: "/language:${{ matrix.language }}"

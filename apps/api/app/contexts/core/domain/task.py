@@ -49,9 +49,7 @@ class Task(AggregateRoot):
     def assign(self, assignee_id: EntityId, *, actor: EntityId | None = None) -> None:
         self.assignee_id = assignee_id
         self.touch(actor=actor)
-        self.record_event(
-            TaskAssigned(task_id=self.id, assignee_id=assignee_id, assigned_by=actor)
-        )
+        self.record_event(TaskAssigned(task_id=self.id, assignee_id=assignee_id, assigned_by=actor))
 
     def mark_in_progress(self, *, actor: EntityId | None = None) -> None:
         self.status = TaskStatus.IN_PROGRESS

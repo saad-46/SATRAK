@@ -38,9 +38,7 @@ class Money(ValueObject):
 
     def _assert_same_currency(self, other: Money) -> None:
         if self.currency != other.currency:
-            raise ValueValidationError(
-                f"currency mismatch: {self.currency} vs {other.currency}"
-            )
+            raise ValueValidationError(f"currency mismatch: {self.currency} vs {other.currency}")
 
     def add(self, other: Money) -> Money:
         self._assert_same_currency(other)

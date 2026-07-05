@@ -48,7 +48,10 @@ class Settings(BaseSettings):
 
     # --- HTTP / API ----------------------------------------------------------
     api_v1_prefix: str = "/api/v1"
-    host: str = "0.0.0.0"
+    # Binding to all interfaces is required for the containerized deployment to be
+    # reachable; network exposure is controlled at the ingress/gateway layer, not
+    # by the bind address (Zero Trust — TDD §11). Overridable via SATRAK_API_HOST.
+    host: str = "0.0.0.0"  # nosec B104
     port: int = 8000
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
 

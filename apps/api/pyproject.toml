@@ -27,10 +27,11 @@ dev = [
     "pytest-asyncio>=0.25.0",
     "pytest-cov>=6.0.0",
     "httpx>=0.28.0",
-    "ruff>=0.8.0",
-    "black>=24.10.0",
-    "isort>=5.13.0",
+    "ruff>=0.8.0",         # single tool: lint + format + import-sort
     "mypy>=1.14.0",
+    "bandit>=1.8.0",       # SAST
+    "pip-audit>=2.7.0",    # dependency CVE audit
+    "import-linter>=2.1",  # enforces the clean-architecture dependency rule
 ]
 
 [build-system]
@@ -56,16 +57,13 @@ ignore = [
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
 
-# --- Black (formatting) ------------------------------------------------------
-[tool.black]
-line-length = 100
-target-version = ["py312"]
-
-# --- isort -------------------------------------------------------------------
-[tool.isort]
-profile = "black"
-line_length = 100
-known_first_party = ["app"]
+# --- Ruff (formatting) -------------------------------------------------------
+# Ruff's formatter is black-compatible and Rust-based, so it is unaffected by the
+# CPython 3.12.5 AST-safety bug that prevents black from running. It also sorts
+# imports via the lint `I` rule, so ruff replaces both black and isort — one
+# fast, future-proof toolchain. See ADR-0004.
+[tool.ruff.format]
+docstring-code-format = true
 
 # --- mypy (type checking) ----------------------------------------------------
 [tool.mypy]
@@ -96,3 +94,38 @@ exclude_also = [
     "\\.\\.\\.$",
     "@(abc\\.)?abstractmethod",
 ]
+
+# --- Bandit (SAST) -----------------------------------------------------------
+[tool.bandit]
+exclude_dirs = ["tests", ".venv", "alembic"]
+
+# --- import-linter (dependency-rule enforcement) -----------------------------
+# Machine-enforces the Clean Architecture dependency rule that ADR-0002/0003
+# describe: the shared kernel and bounded contexts must not depend outward.
+[tool.importlinter]
+root_package = "app"
+
+[[tool.importlinter.contracts]]
+name = "Shared kernel is framework- and app-agnostic"
+type = "forbidden"
+source_modules = ["app.shared"]
+forbidden_modules = [
+    "app.api",
+    "app.db",
+    "app.core",
+    "app.contexts",
+    "app.main",
+    "app.testing",
+]
+
+[[tool.importlinter.contracts]]
+name = "Bounded contexts depend only inward"
+type = "forbidden"
+source_modules = ["app.contexts"]
+forbidden_modules = ["app.api", "app.db", "app.core", "app.main"]
+
+[[tool.importlinter.contracts]]
+name = "Core infrastructure does not depend on API or contexts"
+type = "forbidden"
+source_modules = ["app.core"]
+forbidden_modules = ["app.api", "app.contexts", "app.main"]

@@ -27,9 +27,7 @@ class PhoneNumber(ValueObject):
         if not compact:
             raise ValueValidationError("phone number must not be empty", field="phone")
         if not _E164_RE.match(compact):
-            raise ValueValidationError(
-                f"invalid phone number: {self.value!r}", field="phone"
-            )
+            raise ValueValidationError(f"invalid phone number: {self.value!r}", field="phone")
         object.__setattr__(self, "value", compact)
 
     @property

@@ -41,9 +41,7 @@ class Notification(AggregateRoot):
         subject: str,
         body: str,
     ) -> Notification:
-        notification = cls(
-            recipient_id=recipient_id, channel=channel, subject=subject, body=body
-        )
+        notification = cls(recipient_id=recipient_id, channel=channel, subject=subject, body=body)
         notification.record_event(
             NotificationCreated(
                 notification_id=notification.id,

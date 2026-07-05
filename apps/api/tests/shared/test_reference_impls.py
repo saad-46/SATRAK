@@ -62,9 +62,7 @@ class TestInMemoryAuditSink:
         sink = InMemoryAuditSink()
         from app.shared.domain.identifiers import new_id
 
-        await sink.record(
-            AuditEntry(action="viewed", subject_type="Case", subject_id=new_id())
-        )
+        await sink.record(AuditEntry(action="viewed", subject_type="Case", subject_id=new_id()))
         assert len(sink.entries) == 1
         assert sink.entries[0].action == "viewed"
 

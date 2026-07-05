@@ -53,8 +53,13 @@ alembic revision --autogenerate -m "add X table"
 ## Quality
 
 ```bash
-ruff check .
-black . && isort .
-mypy app
-pytest
+ruff check .          # lint
+ruff format .         # format (replaces black + isort — see ADR-0004)
+mypy app              # strict type check
+bandit -c pyproject.toml -r app   # SAST
+pip-audit             # dependency CVE audit
+lint-imports          # enforce the dependency rule (import-linter)
+pytest                # tests + coverage gate
 ```
+
+From the repo root, `make check` runs the whole gate (mirrors CI).

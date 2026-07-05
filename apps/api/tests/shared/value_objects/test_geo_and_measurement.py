@@ -43,9 +43,7 @@ class TestGeoPoint:
 
 class TestBoundingBox:
     def test_center_and_contains(self) -> None:
-        bbox = BoundingBox(
-            min_longitude=0, min_latitude=0, max_longitude=10, max_latitude=10
-        )
+        bbox = BoundingBox(min_longitude=0, min_latitude=0, max_longitude=10, max_latitude=10)
         assert bbox.center == Coordinates(latitude=5, longitude=5)
         assert bbox.contains(Coordinates(latitude=5, longitude=5)) is True
         assert bbox.contains(Coordinates(latitude=20, longitude=20)) is False

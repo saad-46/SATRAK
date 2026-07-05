@@ -61,9 +61,7 @@ class PageRequest:
         if self.page < 1:
             raise ValueValidationError("page must be >= 1", field="page")
         if not 1 <= self.size <= MAX_PAGE_SIZE:
-            raise ValueValidationError(
-                f"size must be between 1 and {MAX_PAGE_SIZE}", field="size"
-            )
+            raise ValueValidationError(f"size must be between 1 and {MAX_PAGE_SIZE}", field="size")
 
     @property
     def offset(self) -> int:

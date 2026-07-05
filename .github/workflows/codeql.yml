@@ -33,7 +33,46 @@ jobs:
           queries: security-and-quality
       - name: Autobuild
         uses: github/codeql-action/autobuild@v3
+
+      # Run the analysis but DO NOT upload from here — write SARIF to a dir so the
+      # upload can be attempted separately and made non-fatal. This keeps the
+      # analysis running even when GitHub Code Scanning is not enabled on the repo.
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
         with:
           category: "/language:${{ matrix.language }}"
+          upload: false
+          output: sarif-results
+
+      # Always preserve the results as a build artifact (works regardless of
+      # whether Code Scanning is enabled).
+      - name: Upload SARIF artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-sarif-${{ matrix.language }}
+          path: sarif-results
+          if-no-files-found: ignore
+
+      # Attempt to upload to GitHub Code Scanning. This is the ONLY step that
+      # requires the "Code scanning" feature. It is non-fatal: if the repo/plan
+      # does not have Code Scanning enabled ("Code scanning is not enabled for this
+      # repository"), the step is marked failed-but-continued and CI stays green.
+      #
+      # To make uploads succeed, enable Code Scanning in the repo:
+      #   Settings → Code security and analysis → Code scanning → "Set up" (Advanced).
+      #   (Public repos: free. Private repos: requires GitHub Advanced Security.)
+      - name: Upload SARIF to Code Scanning (non-fatal if disabled)
+        id: upload_sarif
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: sarif-results
+          category: "/language:${{ matrix.language }}"
+
+      - name: Note if SARIF upload was skipped
+        if: steps.upload_sarif.outcome != 'success'
+        run: |
+          echo "::warning::CodeQL analysis ran and SARIF is attached as an artifact,"
+          echo "::warning::but upload to Code Scanning was skipped (feature not enabled)."
+          echo "::warning::Enable it: Settings → Code security and analysis → Code scanning."

@@ -48,7 +48,7 @@ jobs:
       # whether Code Scanning is enabled).
       - name: Upload SARIF artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: codeql-sarif-${{ matrix.language }}
           path: sarif-results

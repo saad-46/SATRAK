@@ -27,7 +27,7 @@ jobs:
       # ("packageManager": "pnpm@9.15.9"); action-setup@v4 reads it. Do not also
       # pass a `version:` here — specifying both fails with "Multiple versions of
       # pnpm specified". action-setup runs before setup-node so `cache: pnpm` works.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v4
         with:
           node-version: 20

@@ -64,6 +64,11 @@ class Settings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_format: Literal["json", "console"] = "json"
 
+    # --- Feature flags -------------------------------------------------------
+    # Simple env-driven flags for now; a per-jurisdiction provider
+    # (app.shared.services.configuration) supersedes this at runtime later.
+    feature_flags: dict[str, bool] = Field(default_factory=dict)
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_cors(cls, value: object) -> object:
@@ -80,6 +85,10 @@ class Settings(BaseSettings):
     def docs_enabled(self) -> bool:
         """Interactive docs are exposed everywhere except production."""
         return self.environment is not Environment.PRODUCTION
+
+    def feature_enabled(self, flag: str) -> bool:
+        """Return whether a named feature flag is enabled (default False)."""
+        return self.feature_flags.get(flag, False)
 
 
 @lru_cache

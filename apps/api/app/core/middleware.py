@@ -16,6 +16,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from app.core.metrics import metrics
+
 logger = structlog.get_logger("api.access")
 
 REQUEST_ID_HEADER = "X-Request-ID"
@@ -52,6 +54,11 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         duration_ms = round((time.perf_counter() - start) * 1000, 2)
         response.headers[REQUEST_ID_HEADER] = request_id
         response.headers[CORRELATION_ID_HEADER] = correlation_id
+        metrics.increment(
+            "http_requests_total",
+            method=request.method,
+            status=str(response.status_code),
+        )
         logger.info(
             "request_completed",
             status_code=response.status_code,

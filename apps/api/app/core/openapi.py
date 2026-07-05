@@ -16,6 +16,7 @@ from app.core.config import Settings
 TAGS_METADATA = [
     {"name": "health", "description": "Liveness and readiness probes."},
     {"name": "meta", "description": "Service version and non-secret runtime metadata."},
+    {"name": "system", "description": "Runtime info and operational metrics."},
 ]
 
 

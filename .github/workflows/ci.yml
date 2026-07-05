@@ -11,6 +11,9 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   # ---------------------------------------------------------------------------
   # Frontend (apps/web + TS packages)
@@ -20,28 +23,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: pnpm/action-setup@v4
         with:
           version: 9
-
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: pnpm
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
       - name: Lint
         run: pnpm run lint
-
       - name: Type-check
         run: pnpm run typecheck
-
       - name: Test
         run: pnpm run test
-
       - name: Build
         run: pnpm run build
         env:
@@ -49,40 +45,116 @@ jobs:
           NEXT_PUBLIC_API_URL: http://localhost:8000
 
   # ---------------------------------------------------------------------------
-  # Backend (apps/api)
+  # Backend quality (apps/api): lint · format · types · dependency rule · tests
   # ---------------------------------------------------------------------------
   api:
-    name: API (lint · type · test)
+    name: API (lint · format · type · contracts · test)
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: apps/api
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
+          cache: pip
+          cache-dependency-path: apps/api/pyproject.toml
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
-
       - name: Ruff (lint)
         run: ruff check .
-
-      - name: Black (format check)
-        run: black --check .
-
-      - name: isort (import order check)
-        run: isort --check-only .
-
-      - name: mypy (type check)
+      - name: Ruff (format check)
+        run: ruff format --check .
+      - name: mypy (strict types)
         run: mypy app
+      - name: import-linter (dependency rule)
+        run: lint-imports
+      - name: Pytest (+ coverage gate)
+        run: pytest --cov-report=xml
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-coverage
+          path: apps/api/coverage.xml
+          if-no-files-found: ignore
 
-      - name: Pytest
-        run: pytest
+  # ---------------------------------------------------------------------------
+  # Security: SAST (bandit), dependency CVEs (pip-audit), secret scan (gitleaks)
+  # ---------------------------------------------------------------------------
+  security:
+    name: Security (bandit · pip-audit · gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks scans full history
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/api/pyproject.toml
+      - name: Install security tools
+        working-directory: apps/api
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit pip-audit
+      - name: Bandit (SAST)
+        working-directory: apps/api
+        run: bandit -q -c pyproject.toml -r app
+      - name: pip-audit (dependency CVEs)
+        working-directory: apps/api
+        run: pip-audit --skip-editable
+      - name: Gitleaks (secret scan)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # Database migration validation against a real PostGIS instance
+  # ---------------------------------------------------------------------------
+  migrations:
+    name: Migrations (alembic upgrade against PostGIS)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    services:
+      postgis:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: satrak
+          POSTGRES_PASSWORD: satrak_ci
+          POSTGRES_DB: satrak
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U satrak -d satrak"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/api/pyproject.toml
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Alembic upgrade head
+        env:
+          SATRAK_API_DATABASE_URL: postgresql+asyncpg://satrak:satrak_ci@localhost:5432/satrak
+        run: alembic upgrade head
+      - name: Alembic downgrade base (round-trip check)
+        env:
+          SATRAK_API_DATABASE_URL: postgresql+asyncpg://satrak:satrak_ci@localhost:5432/satrak
+        run: alembic downgrade base
 
   # ---------------------------------------------------------------------------
   # Docker build verification (does not push)
@@ -99,6 +171,8 @@ jobs:
           context: apps/api
           push: false
           tags: satrak-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
       - name: Build Web image
         uses: docker/build-push-action@v6
         with:
@@ -106,3 +180,5 @@ jobs:
           file: apps/web/Dockerfile
           push: false
           tags: satrak-web:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

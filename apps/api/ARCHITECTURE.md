@@ -121,5 +121,41 @@ uniformly.
    problem-details error handling.
 6. Test with `app.testing.factories` and `app.testing.fakes`.
 
-See [docs/adr/0002-core-domain-platform.md](../../docs/adr/0002-core-domain-platform.md)
-for the decisions behind this design.
+## Deployment topology (modular monolith → services)
+
+SATRAK ships as a **modular monolith**: one `apps/api` process today, with every
+bounded context under `app/contexts/<ctx>` built as a strict, independently
+extractable seam. The Blueprint's target is eleven microservices; the top-level
+`services/<ctx>/` directories are the **reserved extraction addresses** for each
+context — intentionally empty until load, ownership, or data-residency justifies a
+split. **`app/contexts/<ctx>` is authoritative; `services/<ctx>` is its future
+home.** The rationale, tradeoffs, and step-by-step extraction strategy are in
+[ADR-0003](../../docs/adr/0003-modular-monolith-first.md).
+
+The dependency rule that keeps extraction cheap is **machine-enforced by
+import-linter** (`[tool.importlinter]` in `pyproject.toml`, run in CI): the shared
+kernel and each context are contractually forbidden from depending outward.
+
+### Shared-kernel packaging path
+
+Today `app/shared` is imported in-process. It cannot be imported by a future
+`services/<ctx>` (separate deployable) as-is. The prepared — but **not yet
+executed** (no premature extraction) — path is:
+
+1. When the first context is extracted, move `app/shared` into an installable
+   Python package (e.g. `packages/python/satrak-core` with its own
+   `pyproject.toml`), published to the internal index.
+2. `apps/api` and each `services/<ctx>` add it as a normal dependency; imports
+   change from `app.shared.*` to `satrak_core.*` (a mechanical rename).
+3. Because the shared kernel is pure-Python with zero framework/app dependencies
+   (enforced by import-linter), it packages cleanly with no untangling.
+
+Until step 1's trigger, keeping the kernel in `app/shared` avoids the overhead of
+versioning/publishing a package that has exactly one consumer.
+
+## Related decisions
+
+- [ADR-0001](../../docs/adr/0001-monorepo-and-engineering-foundation.md) — monorepo & foundation
+- [ADR-0002](../../docs/adr/0002-core-domain-platform.md) — core domain platform (this design)
+- [ADR-0003](../../docs/adr/0003-modular-monolith-first.md) — modular monolith first & extraction strategy
+- [ADR-0004](../../docs/adr/0004-ruff-formatting-toolchain.md) — Ruff lint/format toolchain

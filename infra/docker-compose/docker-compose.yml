@@ -1,0 +1,101 @@
+# =============================================================================
+# SATRAK — local development stack
+# =============================================================================
+# Brings up PostGIS, Redis, the API, and the web app with hot reload. Datastore
+# state persists in named volumes; every service has a healthcheck so dependents
+# only start once their dependencies are actually ready.
+#
+# Usage (from repo root):  docker compose -f infra/docker-compose/docker-compose.yml up -d
+# Env is read from the repo-root .env (see .env.example).
+# -----------------------------------------------------------------------------
+
+name: satrak
+
+services:
+  postgis:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-satrak}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-satrak_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-satrak}
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+      - ./db-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-satrak} -d ${POSTGRES_DB:-satrak}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: ../../apps/api
+      dockerfile: Dockerfile
+    # Live-reload the container against mounted source for local development.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    environment:
+      SATRAK_API_ENVIRONMENT: development
+      SATRAK_API_LOG_FORMAT: console
+      SATRAK_API_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-satrak}:${POSTGRES_PASSWORD:-satrak_dev_password}@postgis:5432/${POSTGRES_DB:-satrak}
+      SATRAK_API_REDIS_URL: redis://redis:6379/0
+      SATRAK_API_CORS_ORIGINS: http://localhost:3000
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ../../apps/api/app:/app/app
+      - ../../apps/api/alembic:/app/alembic
+    depends_on:
+      postgis:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/v1/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  web:
+    image: node:20-slim
+    working_dir: /repo
+    # corepack provides pnpm; install then run the Next dev server with HMR.
+    command: >
+      sh -c "corepack enable &&
+             pnpm install --filter @satrak/web... &&
+             pnpm --filter @satrak/web dev"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_APP_ENV: development
+      WATCHPACK_POLLING: "true"
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    volumes:
+      - ../../:/repo
+      - web_node_modules:/repo/node_modules
+      - web_app_node_modules:/repo/apps/web/node_modules
+    depends_on:
+      api:
+        condition: service_started
+
+volumes:
+  postgis_data:
+  redis_data:
+  web_node_modules:
+  web_app_node_modules:

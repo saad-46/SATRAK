@@ -20,10 +20,12 @@ async def test_root_endpoint(client: AsyncClient) -> None:
     assert response.json()["service"] == "SATRAK API"
 
 
-async def test_unknown_route_returns_error_envelope(client: AsyncClient) -> None:
+async def test_unknown_route_returns_problem_details(client: AsyncClient) -> None:
     response = await client.get("/api/v1/does-not-exist")
     assert response.status_code == 404
+    assert response.headers["content-type"].startswith("application/problem+json")
     body = response.json()
-    assert "error" in body
-    assert body["error"]["code"] == "http_404"
-    assert "request_id" in body["error"]
+    assert body["status"] == 404
+    assert body["code"] == "http_404"
+    assert body["instance"] == "/api/v1/does-not-exist"
+    assert "request_id" in body

@@ -1,0 +1,22 @@
+# Build outputs
+**/.next/**
+**/dist/**
+**/build/**
+**/coverage/**
+**/node_modules/**
+
+# Python
+**/.venv/**
+**/__pycache__/**
+**/*.pyc
+**/alembic/versions/**
+
+# Generated
+**/pnpm-lock.yaml
+**/*.min.*
+**/.turbo/**
+
+# Large source-of-truth docs (do not reformat)
+PRD.md
+TDD.md
+ENGINEERING_BLUEPRINT.md

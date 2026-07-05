@@ -1,0 +1,22 @@
+# Normalize line endings across OSes. Text files are stored as LF in the repo
+# and checked out as-is; this eliminates the CRLF/LF churn warnings on Windows.
+* text=auto eol=lf
+
+# Explicitly binary — never touch these.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.tif binary
+*.tiff binary
+
+# Windows-only scripts should keep CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Shell scripts must stay LF even on Windows.
+*.sh text eol=lf

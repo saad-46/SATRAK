@@ -111,6 +111,13 @@ $RECYCLE.BIN/
 .directory
 .Trash-*
 
+# ---------- Turborepo / Playwright / Next standalone ----------
+.turbo/
+playwright-report/
+test-results/
+**/.next/standalone/
+next-env.d.ts
+
 # ---------- Misc ----------
 *.bak
 *.tmp

@@ -1,0 +1,7 @@
+# pnpm workspace definition.
+# Only JS/TS packages are listed here. Python apps/services (apps/api, apps/ai,
+# services/*) are managed by their own pyproject.toml and are intentionally not
+# pnpm workspace members — pnpm simply ignores directories without a package.json.
+packages:
+  - "apps/web"
+  - "packages/*"

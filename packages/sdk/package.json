@@ -15,6 +15,6 @@
     "generate": "echo \"(sdk) codegen from OpenAPI wired up in a later epic\""
   },
   "devDependencies": {
-    "typescript": "^5.7.3"
+    "typescript": "^7.0.2"
   }
 }

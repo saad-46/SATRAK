@@ -29,12 +29,13 @@ def _aoi(jurisdiction: uuid.UUID) -> AreaOfInterest:
 
 
 def test_a_scope_is_mandatory_and_must_be_an_access_scope() -> None:
-    # Called through Any: these are deliberately invalid calls that the types already forbid.
-    untyped: Any = ScopedRepository
+    # Arguments are unpacked from tuples: these are deliberately invalid calls.
+    missing: tuple[Any, ...] = (InMemoryAoiRepository(),)
+    not_a_scope: tuple[Any, ...] = (InMemoryAoiRepository(), None)
     with pytest.raises(TypeError):
-        untyped(InMemoryAoiRepository())
+        ScopedRepository(*missing)
     with pytest.raises(TypeError):
-        untyped(InMemoryAoiRepository(), None)
+        ScopedRepository(*not_a_scope)
 
 
 async def test_get_missing_is_none_and_foreign_raises_out_of_scope() -> None:

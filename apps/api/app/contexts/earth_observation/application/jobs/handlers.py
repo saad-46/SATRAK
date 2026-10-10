@@ -28,6 +28,7 @@ from app.contexts.earth_observation.application.jobs.runner import (
     JobHandler,
     ProgressReporter,
     require_field,
+    scope_from_payload,
 )
 from app.contexts.earth_observation.application.metadata.extract_metadata import (
     MetadataExtractionService,
@@ -40,6 +41,7 @@ from app.contexts.earth_observation.application.preprocessing.thumbnails import 
 from app.contexts.earth_observation.application.tiling.generate_tiles import TilingService
 from app.contexts.earth_observation.domain.ports.repositories import SceneRepository
 from app.shared.domain.identifiers import parse_id
+from app.shared.persistence.scoped import ScopedRepository
 
 
 def build_default_handlers(
@@ -57,7 +59,7 @@ def build_default_handlers(
 
     async def ingest(payload: Mapping[str, str], *, progress: ProgressReporter) -> HandlerResult:
         scene_id = parse_id(require_field(payload, "scene_id"))
-        reference = await download.download(scene_id=scene_id)
+        reference = await download.download(scene_id=scene_id, scope=scope_from_payload(payload))
         await progress(1.0)
         return HandlerResult(payload_update={"source_uri": reference.storage_key})
 
@@ -65,6 +67,7 @@ def build_default_handlers(
         scene_id = parse_id(require_field(payload, "scene_id"))
         report = await validation.validate(
             scene_id=scene_id,
+            scope=scope_from_payload(payload),
             expected_checksum_sha256=payload.get("expected_checksum_sha256"),
         )
         await progress(1.0)
@@ -77,7 +80,9 @@ def build_default_handlers(
     async def extract(payload: Mapping[str, str], *, progress: ProgressReporter) -> HandlerResult:
         scene_id = parse_id(require_field(payload, "scene_id"))
         await metadata.extract_and_register(
-            scene_id=scene_id, source_uri=require_field(payload, "source_uri")
+            scene_id=scene_id,
+            source_uri=require_field(payload, "source_uri"),
+            scope=scope_from_payload(payload),
         )
         await progress(1.0)
         return HandlerResult()
@@ -87,21 +92,21 @@ def build_default_handlers(
     ) -> HandlerResult:
         scene_id = parse_id(require_field(payload, "scene_id"))
         await progress(0.1)
-        await preprocessing.preprocess(scene_id=scene_id)
+        await preprocessing.preprocess(scene_id=scene_id, scope=scope_from_payload(payload))
         await progress(1.0)
         return HandlerResult()
 
     async def tiles(payload: Mapping[str, str], *, progress: ProgressReporter) -> HandlerResult:
         scene_id = parse_id(require_field(payload, "scene_id"))
         await progress(0.1)
-        await tiling.generate(scene_id=scene_id)
+        await tiling.generate(scene_id=scene_id, scope=scope_from_payload(payload))
         await progress(1.0)
         return HandlerResult()
 
     async def thumbnail(payload: Mapping[str, str], *, progress: ProgressReporter) -> HandlerResult:
         """Standalone thumbnail (re-)generation outside the pipeline chain."""
         scene_id = parse_id(require_field(payload, "scene_id"))
-        scene = await scenes.require(scene_id)
+        scene = await ScopedRepository(scenes, scope_from_payload(payload)).require(scene_id)
         dataset = await loader.load(scene)
         await thumbnails.generate(dataset, scene=scene)
         await progress(1.0)

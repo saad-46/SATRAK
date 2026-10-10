@@ -33,7 +33,12 @@ from app.shared.domain.events import DomainEvent
 from app.shared.events.bus import InMemoryEventBus
 from app.shared.persistence.unit_of_work import InMemoryUnitOfWork
 from app.shared.value_objects.geo import BoundingBox
-from tests.contexts.earth_observation.fakes import JURISDICTION, InMemorySceneRepository, make_scene
+from tests.contexts.earth_observation.fakes import (
+    JURISDICTION,
+    SCOPE,
+    InMemorySceneRepository,
+    make_scene,
+)
 
 _SHA = "ab" * 32
 
@@ -139,7 +144,7 @@ async def test_service_marks_validated_on_pass() -> None:
         uow=InMemoryUnitOfWork(),
         policy=ValidationPolicy(expected_provider="sentinel-2"),
     )
-    report = await service.validate(scene_id=scene.id)
+    report = await service.validate(scene_id=scene.id, scope=SCOPE)
     assert report.ok is True
     assert scene.status is SceneStatus.VALIDATED
 
@@ -153,7 +158,7 @@ async def test_service_rejects_on_failure_with_codes() -> None:
         uow=InMemoryUnitOfWork(),
         policy=ValidationPolicy(max_cloud_cover_pct=10.0),
     )
-    report = await service.validate(scene_id=scene.id)
+    report = await service.validate(scene_id=scene.id, scope=SCOPE)
     assert report.ok is False
     assert scene.status is SceneStatus.REJECTED
     assert scene.rejection_reason is not None
@@ -190,7 +195,9 @@ async def test_extraction_merges_and_registers() -> None:
         extractor=extractor, scenes=scenes, uow=InMemoryUnitOfWork(bus)
     )
 
-    extracted = await service.extract_and_register(scene_id=scene.id, source_uri="raw/x/y.zip")
+    extracted = await service.extract_and_register(
+        scene_id=scene.id, source_uri="raw/x/y.zip", scope=SCOPE
+    )
 
     assert extractor.requested_uris == ["raw/x/y.zip"]
     assert extracted.crs == CrsRef(epsg=32643)

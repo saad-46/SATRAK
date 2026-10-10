@@ -17,7 +17,7 @@ S5 revocation and audit log · `4696dea` S6 rate limiting and baseline controls 
 
 ## Changes made in this review
 
-- Tiles default to 120/min/user. `api_ip` stays separately configurable (placeholder value).
+- Tiles default to 120/min/user. `api_ip` stays separately configurable (default 120/min/IP since 2026-10-10).
 - National-scope administrators can revoke accounts with no assignment (store method `covers_national`).
 - `authorize_verification` guard for `finding:verify` (permission and jurisdiction).
 - `prune_auth_sessions` (audited, privileged role) and `session_retention_days`.

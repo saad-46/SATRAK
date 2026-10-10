@@ -120,8 +120,7 @@ default to jurisdiction isolation. The PRD's tenant-less tables (`model_version`
   / `scoped_aois` (a `ScopedRepository` that requires a scope: foreign reads raise `OutOfScopeError`, which
   the endpoint turns into the audited 403, and writes into or over a foreign jurisdiction are refused) or the
   scope-taking collection methods. An AST test fails if an endpoint touches `eo.scenes`/`eo.aois` otherwise.
-  Pipeline services still receive the raw repositories, so a job handed a wrong id acts on it; those paths
-  are not request-reachable but are not tenant-checked either.
+  Pipeline services are covered in the next section.
 - The deployment must ensure only the trusted proxy can reach the API port; `X-Forwarded-For`
   is honoured only from `trusted_proxy_cidrs`.
 
@@ -133,3 +132,40 @@ The startup check now fails on (a) any table outside the extension-owned ones th
 is missing, has a nullable or absent `jurisdiction_id`, or has no policy; plus the role checks above, with
 role membership tested via `MEMBER` (inherited privileges included). Extension tables (PostGIS) are exempt
 through `pg_depend`. Nothing here verifies what a policy _says_; that is covered by the RLS tests.
+
+### Pipeline-service isolation (owner review 2026-10-10)
+
+**Inventory.** Production code calling a raw (unscoped) scene repository: `SceneDiscoveryService`,
+`SceneDownloadService`, `ValidateSceneService`, `MetadataExtractionService`, `PreprocessingService`,
+`TilingService` and the standalone-thumbnail job handler. Everything else uses scope-taking methods
+(`search`, `count_matching`, `list_in_scope`) or scoped views.
+
+**Entry points.** No request path, no administrative workflow and no scheduler reaches any of them today:
+the services are constructed only in tests (`infra` has no worker; `app/contexts/earth_observation/
+infrastructure/jobs` is a README), the EO composition root builds only the read services, and an
+import-linter contract now bars `app.api`/`app.main` from importing the pipeline packages. The only
+producer of tasks is discovery, which enqueues from an AOI the caller has no way to supply. So **no tenant
+can currently trigger a read or write of another jurisdiction's data through the pipeline**. The risk is
+prospective: the first worker adapter or "reprocess" endpoint would otherwise feed an unchecked `scene_id`.
+
+**Classification and rule.**
+
+| Operation                                               | Class  | Scope used                                                |
+| ------------------------------------------------------- | ------ | --------------------------------------------------------- |
+| Discovery for an AOI                                    | tenant | `TenantScope({aoi.jurisdiction_id})` (dedup and insert)   |
+| ingest, validate, extract, preprocess, tiles, thumbnail | tenant | `TenantScope` from the task's `jurisdiction_id`           |
+| Cross-jurisdiction maintenance (none exists)            | system | `SystemScope(reason)` built in code, never from a payload |
+
+Every stage entry point now takes a required `scope` and reaches scenes only through a `ScopedRepository`.
+A task payload carries `jurisdiction_id` (set by discovery, propagated by the runner); it can narrow work to
+one tenant but cannot express the system scope. A missing or malformed value, or a scene of another
+jurisdiction, fails the job: the latter raises `OutOfScopeError`, is **not retried**, ends the chain, and
+logs `pipeline_scope_violation` (task, job id, both jurisdiction ids). The provider-scene dedup lookup is
+per jurisdiction, so one tenant's discovery neither sees nor is blocked by another tenant's copy of the
+same provider scene (adjacent jurisdictions each keep their own row).
+
+**Not done / needed with the first worker adapter.** Durable audit of scope violations and of every
+`SystemScope` job in `audit_event` (today: structured logs only, because the worker has no database
+context yet); a system job must be registered in code with a reason and an operator identity; payloads
+must be authenticated or originate only from trusted producers. A uniqueness constraint on
+(provider, native id, jurisdiction) belongs in the SQL repository, not a global one.

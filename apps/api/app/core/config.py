@@ -90,7 +90,8 @@ class AuthSettings(BaseSettings):
     max_token_lifetime_seconds: int = Field(default=900, ge=60, le=86400)
     # How long after a session's token expired its registry row is kept before pruning. The row
     # is needed only until the token expires (a revoked token must stay refused); the value is an
-    # engineering placeholder, NOT a legal retention period: confirm against the records policy.
+    # engineering placeholder, NOT a legal retention period. UNAPPROVED: the owner has not
+    # approved 30 days; confirm against the records-retention policy before relying on it.
     session_retention_days: int = Field(default=30, ge=1, le=3650)
 
     @field_validator("audiences", "allowed_algorithms", mode="before")
@@ -145,10 +146,12 @@ DEFAULT_RATE_POLICIES: dict[str, list[RatePolicySpec]] = {
         RatePolicySpec(limit=30, window_seconds=3600),
     ],
     "admin_user": [RatePolicySpec(limit=10, window_seconds=60)],
-    # Owner decision 2026-10-10: tiles start at 120/min/user, configurable separately. The IP
-    # abuse ceiling is separately configurable; its value is an engineering placeholder to be
-    # validated by load and abuse testing, not an owner-approved figure.
-    "api_ip": [RatePolicySpec(limit=600, window_seconds=60)],
+    # Owner decisions 2026-10-10: tiles start at 120/min/user; the general per-IP ceiling starts
+    # at 120/min/IP. Both are initial defaults to be tuned from load and abuse testing, and both
+    # are configurable. The IP ceiling counts every request from one address, so it is only
+    # meaningful when the real client address is known (trusted proxy settings, see ADR-0013):
+    # behind a load balancer left unconfigured, all clients would share one bucket.
+    "api_ip": [RatePolicySpec(limit=120, window_seconds=60)],
     "tiles_user": [RatePolicySpec(limit=120, window_seconds=60)],
 }
 

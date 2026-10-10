@@ -71,6 +71,7 @@ from app.shared.persistence.unit_of_work import InMemoryUnitOfWork
 from app.shared.services.background_task import BackgroundTask, InlineTaskQueue
 from app.shared.services.storage import InMemoryStorageProvider
 from tests.contexts.earth_observation.fakes import (
+    SCOPE,
     WINDOW,
     FakeProvider,
     InMemorySceneRepository,
@@ -110,12 +111,18 @@ async def test_success_chains_next_stage_with_merged_payload() -> None:
     runner, tracker = _runner(queue, chain={"stage.a": "stage.b"})
     runner.register("stage.a", _ok_handler)
 
-    record = await runner.execute(BackgroundTask(name="stage.a", payload={"scene_id": "s-1"}))
+    record = await runner.execute(
+        BackgroundTask(name="stage.a", payload={"scene_id": "s-1", "jurisdiction_id": "j-1"})
+    )
 
     assert record.status is JobStatus.SUCCEEDED
     assert record.progress == 1.0
     assert [t.name for t in queue.enqueued] == ["stage.b"]
-    assert queue.enqueued[0].payload == {"scene_id": "s-1", "extra": "value"}
+    assert queue.enqueued[0].payload == {
+        "scene_id": "s-1",
+        "jurisdiction_id": "j-1",
+        "extra": "value",
+    }
     assert (await tracker.list_jobs())[0].task_name == "stage.a"
 
 
@@ -248,7 +255,9 @@ async def test_full_pipeline_end_to_end_through_task_queue() -> None:
 
     class _Extractor:
         async def extract(self, *, source_uri: str) -> ExtractedMetadata:
-            scene = await scenes.get_by_provider_scene_id(provider.candidates[0].provider_scene_id)
+            scene = await scenes.get_by_provider_scene_id(
+                provider.candidates[0].provider_scene_id, scope=SCOPE
+            )
             assert scene is not None
             return ExtractedMetadata(acquisition=scene.acquisition, crs=CrsRef(epsg=32643))
 
@@ -346,7 +355,10 @@ async def test_full_pipeline_end_to_end_through_task_queue() -> None:
 
     # Standalone thumbnail re-generation runs outside the chain.
     regen = await runner.execute(
-        BackgroundTask(name=TASK_GENERATE_THUMBNAIL, payload={"scene_id": str(scene.id)})
+        BackgroundTask(
+            name=TASK_GENERATE_THUMBNAIL,
+            payload={"scene_id": str(scene.id), "jurisdiction_id": str(scene.jurisdiction_id)},
+        )
     )
     assert regen.status is JobStatus.SUCCEEDED
     assert len(await tracker.list_jobs()) == 6

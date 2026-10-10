@@ -20,6 +20,7 @@ from app.contexts.earth_observation.infrastructure.persistence import (
     InMemoryAoiRepository,
     InMemorySceneRepository,
 )
+from app.shared.domain.scope import TenantScope
 from app.shared.value_objects.geo import BoundingBox
 from app.shared.value_objects.ranges import TimeRange
 
@@ -38,6 +39,7 @@ __all__ = [
 BBOX = BoundingBox(min_longitude=76.0, min_latitude=12.0, max_longitude=78.0, max_latitude=14.0)
 ACQUIRED_AT = datetime(2024, 6, 1, 5, 32, tzinfo=UTC)
 JURISDICTION = UUID("00000000-0000-4000-8000-0000000000a1")
+SCOPE = TenantScope(frozenset({JURISDICTION}))  # the tenant every fake scene belongs to
 WINDOW = TimeRange(start=datetime(2024, 1, 1, tzinfo=UTC), end=datetime(2024, 12, 31, tzinfo=UTC))
 
 

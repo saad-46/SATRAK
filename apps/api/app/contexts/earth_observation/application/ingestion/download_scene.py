@@ -23,6 +23,8 @@ from app.contexts.earth_observation.domain.ports.repositories import SceneReposi
 from app.contexts.earth_observation.infrastructure.storage.keying import StorageKeyStrategy
 from app.shared.domain.errors import BusinessRuleViolation
 from app.shared.domain.identifiers import EntityId
+from app.shared.domain.scope import AccessScope
+from app.shared.persistence.scoped import ScopedRepository
 from app.shared.persistence.unit_of_work import UnitOfWork
 from app.shared.services.storage import StorageProvider
 from app.shared.value_objects.file_reference import FileReference
@@ -56,8 +58,9 @@ class SceneDownloadService:
         self._raw_extension = raw_extension
         self._content_type = content_type
 
-    async def download(self, *, scene_id: EntityId) -> FileReference:
-        scene = await self._scenes.require(scene_id)
+    async def download(self, *, scene_id: EntityId, scope: AccessScope) -> FileReference:
+        scenes = ScopedRepository(self._scenes, scope)
+        scene = await scenes.require(scene_id)
 
         hasher = hashlib.sha256()
         chunks: list[bytes] = []
@@ -67,7 +70,7 @@ class SceneDownloadService:
                 chunks.append(chunk)
 
         if not chunks:
-            await self._reject(scene, reason="provider returned an empty download stream")
+            await self._reject(scenes, scene, reason="provider returned an empty download stream")
             raise EmptyDownloadError(f"empty download for scene {scene.provider_scene_id}")
 
         checksum = hasher.hexdigest()
@@ -86,13 +89,13 @@ class SceneDownloadService:
         )
 
         scene.mark_downloaded(checksum_sha256=checksum)
-        await self._scenes.update(scene)
+        await scenes.update(scene)
         self._uow.track(scene)
         await self._uow.commit()
         return reference
 
-    async def _reject(self, scene: Scene, *, reason: str) -> None:
+    async def _reject(self, scenes: ScopedRepository[Scene], scene: Scene, *, reason: str) -> None:
         scene.reject(reason=reason)
-        await self._scenes.update(scene)
+        await scenes.update(scene)
         self._uow.track(scene)
         await self._uow.commit()

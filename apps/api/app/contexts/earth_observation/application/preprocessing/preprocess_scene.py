@@ -33,6 +33,8 @@ from app.contexts.earth_observation.infrastructure.raster.ops import (
 )
 from app.shared.domain.errors import BusinessRuleViolation
 from app.shared.domain.identifiers import EntityId
+from app.shared.domain.scope import AccessScope
+from app.shared.persistence.scoped import ScopedRepository
 from app.shared.persistence.unit_of_work import UnitOfWork
 
 _UNKNOWN_CLOUD_QUALITY = 0.75
@@ -93,13 +95,14 @@ class PreprocessingService:
                 "spec includes thumbnail but no ThumbnailRenderer is wired"
             )
 
-    async def preprocess(self, *, scene_id: EntityId) -> PreprocessingResult:
-        scene = await self._scenes.require(scene_id)
+    async def preprocess(self, *, scene_id: EntityId, scope: AccessScope) -> PreprocessingResult:
+        scenes = ScopedRepository(self._scenes, scope)
+        scene = await scenes.require(scene_id)
         if scene.status is SceneStatus.AVAILABLE:
             scene.reprocess(pipeline_version=self._spec.version)
         else:
             scene.start_preprocessing(pipeline_version=self._spec.version)
-        await self._scenes.update(scene)
+        await scenes.update(scene)
         self._uow.track(scene)
         await self._uow.commit()
 
@@ -107,7 +110,7 @@ class PreprocessingService:
             thumbnail_uri = await self._run_steps(scene)
         except Exception as exc:
             scene.mark_failed(reason=str(exc))
-            await self._scenes.update(scene)
+            await scenes.update(scene)
             self._uow.track(scene)
             await self._uow.commit()
             raise PreprocessingError(
@@ -116,7 +119,7 @@ class PreprocessingService:
 
         quality = score_quality(scene.acquisition)
         scene.mark_processed(quality=quality)
-        await self._scenes.update(scene)
+        await scenes.update(scene)
         self._uow.track(scene)
         await self._uow.commit()
         return PreprocessingResult(

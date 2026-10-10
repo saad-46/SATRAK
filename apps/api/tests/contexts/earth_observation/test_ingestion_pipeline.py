@@ -29,6 +29,7 @@ from app.shared.services.background_task import InlineTaskQueue
 from app.shared.services.storage import InMemoryStorageProvider
 from tests.contexts.earth_observation.fakes import (
     BBOX,
+    SCOPE,
     WINDOW,
     FakeProvider,
     InMemorySceneRepository,
@@ -83,7 +84,10 @@ async def test_discovery_registers_filters_and_dedups() -> None:
     assert aoi.id in stored.aoi_ids
     assert sum(isinstance(e, ImageDiscovered) for e in published) == 1
     assert [t.name for t in queue.enqueued] == [INGEST_SCENE_TASK]
-    assert queue.enqueued[0].payload == {"scene_id": str(stored.id)}
+    assert queue.enqueued[0].payload == {
+        "scene_id": str(stored.id),
+        "jurisdiction_id": str(stored.jurisdiction_id),
+    }
 
 
 async def test_discovery_skips_scenes_already_registered() -> None:
@@ -139,7 +143,7 @@ async def test_download_streams_hashes_and_stores() -> None:
         uow=InMemoryUnitOfWork(bus),
     )
 
-    reference = await service.download(scene_id=scene.id)
+    reference = await service.download(scene_id=scene.id, scope=SCOPE)
 
     expected_checksum = hashlib.sha256(b"chunk-achunk-b").hexdigest()
     assert scene.status is SceneStatus.DOWNLOADED
@@ -168,6 +172,6 @@ async def test_download_empty_stream_rejects_scene() -> None:
     )
 
     with pytest.raises(EmptyDownloadError):
-        await service.download(scene_id=scene.id)
+        await service.download(scene_id=scene.id, scope=SCOPE)
     assert scene.status is SceneStatus.REJECTED
     assert any(isinstance(e, ImageRejected) for e in published)

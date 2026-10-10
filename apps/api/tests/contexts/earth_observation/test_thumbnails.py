@@ -26,7 +26,7 @@ from app.contexts.earth_observation.infrastructure.storage.keying import Storage
 from app.shared.domain.errors import ValueValidationError
 from app.shared.persistence.unit_of_work import InMemoryUnitOfWork
 from app.shared.services.storage import InMemoryStorageProvider
-from tests.contexts.earth_observation.fakes import InMemorySceneRepository, make_scene
+from tests.contexts.earth_observation.fakes import SCOPE, InMemorySceneRepository, make_scene
 
 
 def _raster(width: int = 8, height: int = 4) -> InMemoryRaster:
@@ -163,7 +163,7 @@ async def test_pipeline_generates_thumbnails_automatically() -> None:
             ),
         ),
     )
-    result = await service.preprocess(scene_id=scene.id)
+    result = await service.preprocess(scene_id=scene.id, scope=SCOPE)
 
     assert scene.status is SceneStatus.PROCESSED
     assert result.thumbnail_uri == f"thumbnails/{scene.id}/quicklook.bin"

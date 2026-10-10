@@ -23,6 +23,8 @@ from app.contexts.earth_observation.infrastructure.tiles.renderer import render_
 from app.contexts.earth_observation.infrastructure.tiles.tile_matrix import tiles_covering
 from app.shared.domain.errors import BusinessRuleViolation, ValueValidationError
 from app.shared.domain.identifiers import EntityId
+from app.shared.domain.scope import AccessScope
+from app.shared.persistence.scoped import ScopedRepository
 from app.shared.persistence.unit_of_work import UnitOfWork
 from app.shared.services.storage import StorageProvider
 
@@ -104,8 +106,9 @@ class TilingService:
             tile_matrix_set if tile_matrix_set is not None else TileMatrixSetRef.web_mercator_quad()
         )
 
-    async def generate(self, *, scene_id: EntityId) -> TilingResult:
-        scene = await self._scenes.require(scene_id)
+    async def generate(self, *, scene_id: EntityId, scope: AccessScope) -> TilingResult:
+        scenes = ScopedRepository(self._scenes, scope)
+        scene = await scenes.require(scene_id)
         if scene.status is not SceneStatus.PROCESSED:
             raise TilingError(f"scene {scene_id} is {scene.status}, expected PROCESSED")
         # PROCESSED implies a pipeline_version (aggregate invariant), but the scene may come
@@ -148,7 +151,7 @@ class TilingService:
 
         scene.mark_tiled(tile_matrix_set=self._tms)
         scene.mark_available()
-        await self._scenes.update(scene)
+        await scenes.update(scene)
         self._uow.track(scene)
         await self._uow.commit()
         return TilingResult(

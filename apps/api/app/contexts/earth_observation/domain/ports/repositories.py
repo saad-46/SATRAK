@@ -53,7 +53,7 @@ class SceneRepository(Repository[Scene], Protocol):
     """Persistence contract for :class:`Scene` aggregates."""
 
     async def get_by_provider_scene_id(
-        self, provider_scene_id: ProviderSceneId
+        self, provider_scene_id: ProviderSceneId, *, scope: AccessScope
     ) -> Scene | None: ...
 
     async def list_for_aoi(

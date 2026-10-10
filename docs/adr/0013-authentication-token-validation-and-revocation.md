@@ -80,7 +80,7 @@ refresh tokens are held by the SPA/BFF; MFA enforcement location; service-accoun
   is observable through the error log event `rate_limiter_unavailable` (alert on it); no metric exists yet.
 - **Limits.** Approved: 120/min/user API, 30/min/user EO search, 5/min and 30/h per user expensive,
   10/min/user admin/bulk, 10/min/IP auth entry. Tiles start at 120/min/user (`tiles_user`). The separate IP
-  abuse ceiling (`api_ip`, currently 600/min) is configurable but is an engineering placeholder.
+  abuse ceiling (`api_ip`) now defaults to 120/min/IP (owner decision 2026-10-10; configurable, to be tuned by load testing).
   Limiter-level load test (real Redis, 8 simulated instances, 5,000 concurrent calls against a 120/min rule)
   admitted exactly 120; 200 users x 130 calls admitted exactly 120 each. Not a full-stack HTTP load test.
 - **Unauthorized vs foreign.** 401 unauthenticated and 403 cross-jurisdiction remain the acceptance
@@ -98,7 +98,7 @@ refresh tokens are held by the SPA/BFF; MFA enforcement location; service-accoun
   sign in again.
 - **Session pruning.** `auth_session` rows are pruned by `app.db.maintenance.prune_auth_sessions` through the
   audited privileged role, `session_retention_days` after token expiry (default 30, minimum 1). The number
-  is a placeholder: **the records-retention policy needs confirmation**. `audit_event` is never pruned.
+  is a placeholder and is **explicitly unapproved** (owner, 2026-10-10): the records-retention policy needs confirmation before it is relied on. `audit_event` is never pruned.
 
 ## Hardening phase notes (owner approval 2026-10-10)
 

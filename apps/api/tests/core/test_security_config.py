@@ -155,3 +155,15 @@ async def test_unknown_http_methods_share_one_metric_label(idp: TestIdp) -> None
     methods = {c["labels"].get("method") for c in _counters("http_requests_total")}
     assert methods <= {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "OTHER"}
     assert "OTHER" in methods
+
+
+def test_general_ip_ceiling_defaults_to_120_per_minute_and_stricter_limits_remain() -> None:
+    from app.core.config import DEFAULT_RATE_POLICIES
+
+    ceiling = DEFAULT_RATE_POLICIES["api_ip"]
+    assert [(r.limit, r.window_seconds) for r in ceiling] == [(120, 60)]
+    assert DEFAULT_RATE_POLICIES["auth_entry_ip"][0].limit < ceiling[0].limit
+    assert DEFAULT_RATE_POLICIES["expensive_user"][0].limit < ceiling[0].limit
+    assert DEFAULT_RATE_POLICIES["eo_search_user"][0].limit < ceiling[0].limit
+    override = RateLimitSettings(overrides={"api_ip": [{"limit": 300, "window_seconds": 60}]})
+    assert override.policy("api_ip")[0].limit == 300  # still configurable

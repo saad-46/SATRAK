@@ -67,9 +67,16 @@ def _bbox_intersects(scene: Scene, area: BoundingBox) -> bool:
 class InMemorySceneRepository(InMemoryRepository[Scene]):
     """Dict-backed scene repository with dedup, AOI, and criteria search."""
 
-    async def get_by_provider_scene_id(self, provider_scene_id: ProviderSceneId) -> Scene | None:
+    async def get_by_provider_scene_id(
+        self, provider_scene_id: ProviderSceneId, *, scope: AccessScope
+    ) -> Scene | None:
+        """Dedup lookup *within the scope*: another jurisdiction's copy is invisible."""
         for scene in self._store.values():
-            if scene.provider_scene_id == provider_scene_id and not scene.is_deleted:
+            if (
+                scene.provider_scene_id == provider_scene_id
+                and not scene.is_deleted
+                and scope.allows(scene.jurisdiction_id)
+            ):
                 return scene
         return None
 

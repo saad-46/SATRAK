@@ -20,6 +20,8 @@ from app.contexts.earth_observation.infrastructure.storage.keying import ensure_
 from app.shared.domain.clock import utcnow
 from app.shared.domain.errors import ValueValidationError
 from app.shared.domain.identifiers import EntityId
+from app.shared.domain.scope import AccessScope
+from app.shared.persistence.scoped import ScopedRepository
 from app.shared.persistence.unit_of_work import UnitOfWork
 
 
@@ -223,9 +225,10 @@ class ValidateSceneService:
         self._policy = policy if policy is not None else ValidationPolicy()
 
     async def validate(
-        self, *, scene_id: EntityId, expected_checksum_sha256: str | None = None
+        self, *, scene_id: EntityId, scope: AccessScope, expected_checksum_sha256: str | None = None
     ) -> ValidationReport:
-        scene = await self._scenes.require(scene_id)
+        scenes = ScopedRepository(self._scenes, scope)
+        scene = await scenes.require(scene_id)
         report = self._validator.validate(
             ValidationContext(
                 scene=scene,
@@ -241,7 +244,7 @@ class ValidateSceneService:
             scene.mark_validated()
         else:
             scene.reject(reason=f"validation failed: {', '.join(report.codes)}")
-        await self._scenes.update(scene)
+        await scenes.update(scene)
         self._uow.track(scene)
         await self._uow.commit()
         return report

@@ -20,6 +20,8 @@ from app.contexts.earth_observation.domain.ports.imagery_provider import (
     SceneCandidate,
 )
 from app.contexts.earth_observation.domain.ports.repositories import SceneRepository
+from app.shared.domain.scope import TenantScope
+from app.shared.persistence.scoped import ScopedRepository
 from app.shared.persistence.unit_of_work import UnitOfWork
 from app.shared.services.background_task import BackgroundTask, TaskQueue
 from app.shared.value_objects.ranges import TimeRange
@@ -65,6 +67,10 @@ class SceneDiscoveryService:
 
     async def discover(self, *, aoi: AreaOfInterest, window: TimeRange) -> DiscoveryResult:
         candidates = await self._provider.search(area=aoi.bounding_box, window=window)
+        # Discovery is tenant work: it reads and writes only the AOI's own jurisdiction. A
+        # scene another jurisdiction already holds is neither a duplicate here nor visible.
+        scope = TenantScope(frozenset({aoi.jurisdiction_id}))
+        scenes = ScopedRepository(self._scenes, scope)
 
         created: list[Scene] = []
         filtered_out = 0
@@ -73,7 +79,9 @@ class SceneDiscoveryService:
             if not self._filter.accepts(candidate, aoi=aoi):
                 filtered_out += 1
                 continue
-            existing = await self._scenes.get_by_provider_scene_id(candidate.provider_scene_id)
+            existing = await self._scenes.get_by_provider_scene_id(
+                candidate.provider_scene_id, scope=scope
+            )
             if existing is not None:
                 duplicates += 1
                 continue
@@ -84,7 +92,7 @@ class SceneDiscoveryService:
                 jurisdiction_id=aoi.jurisdiction_id,
             )
             scene.link_aoi(aoi.id)
-            await self._scenes.add(scene)
+            await scenes.add(scene)
             self._uow.track(scene)
             created.append(scene)
 
@@ -94,7 +102,14 @@ class SceneDiscoveryService:
         if self._task_queue is not None:
             for scene in created:
                 await self._task_queue.enqueue(
-                    BackgroundTask(name=INGEST_SCENE_TASK, payload={"scene_id": str(scene.id)})
+                    BackgroundTask(
+                        name=INGEST_SCENE_TASK,
+                        payload={
+                            "scene_id": str(scene.id),
+                            # The tenant the work belongs to; every later stage is bound to it.
+                            "jurisdiction_id": str(scene.jurisdiction_id),
+                        },
+                    )
                 )
 
         return DiscoveryResult(

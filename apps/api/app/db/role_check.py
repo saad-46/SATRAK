@@ -32,20 +32,21 @@ class RoleReport:
         return not self.problems
 
 
-# Every ordinary/partitioned table outside the system schemas, partition children and
-# extension-owned tables (PostGIS topology, spatial_ref_sys, ...) excluded.
-_APP_TABLES = """
-    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE c.relkind IN ('r', 'p') AND NOT c.relispartition
-      AND NOT EXISTS (
-          SELECT 1 FROM pg_depend d
-          WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e')
-      AND n.nspname NOT IN ('pg_catalog', 'information_schema')
-      AND n.nspname NOT LIKE 'pg\\_toast%' AND n.nspname NOT LIKE 'pg\\_temp%'
-"""
-
 _INSPECT = text(
-    f"""
+    """
+    WITH app AS (
+        -- Every ordinary/partitioned table outside the system schemas; partition children and
+        -- extension-owned tables (PostGIS topology, spatial_ref_sys, ...) are excluded.
+        SELECT c.oid, n.nspname, c.relname::text AS relname, c.relowner,
+               c.relrowsecurity, c.relforcerowsecurity
+        FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relkind IN ('r', 'p') AND NOT c.relispartition
+          AND NOT EXISTS (
+              SELECT 1 FROM pg_depend d
+              WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e')
+          AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+          AND n.nspname NOT LIKE 'pg\\_toast%' AND n.nspname NOT LIKE 'pg\\_temp%'
+    )
     SELECT
         r.rolname AS role,
         r.rolsuper, r.rolbypassrls, r.rolcreaterole, r.rolcreatedb,
@@ -55,28 +56,29 @@ _INSPECT = text(
               AND pg_has_role(r.oid, x.oid, 'MEMBER')
         ) AS inherits_privileged,
         COALESCE((
-            SELECT array_agg(n.nspname || '.' || c.relname ORDER BY n.nspname, c.relname)
-            {_APP_TABLES} AND pg_has_role(r.oid, c.relowner, 'MEMBER')
+            SELECT array_agg(a.nspname || '.' || a.relname ORDER BY a.nspname, a.relname)
+            FROM app a WHERE pg_has_role(r.oid, a.relowner, 'MEMBER')
         ), ARRAY[]::text[]) AS owned_tables,
         -- in neither reviewed list (tenant / global), or outside the public schema
         COALESCE((
-            SELECT array_agg(n.nspname || '.' || c.relname ORDER BY n.nspname, c.relname)
-            {_APP_TABLES}
-              AND NOT (n.nspname = 'public'
-                       AND (c.relname::text = ANY (CAST(:tenant_tables AS text[]))
-                            OR c.relname::text = ANY (CAST(:global_tables AS text[]))))
+            SELECT array_agg(a.nspname || '.' || a.relname ORDER BY a.nspname, a.relname)
+            FROM app a
+            WHERE NOT (a.nspname = 'public'
+                       AND (a.relname = ANY (CAST(:tenant_tables AS text[]))
+                            OR a.relname = ANY (CAST(:global_tables AS text[]))))
         ), ARRAY[]::text[]) AS unclassified_tables,
         -- tenant-owned (declared, or carrying jurisdiction_id) without enabled + forced RLS
         COALESCE((
-            SELECT array_agg(c.relname::text ORDER BY c.relname)
-            {_APP_TABLES} AND n.nspname = 'public'
-              AND c.relname::text <> ALL (CAST(:global_tables AS text[]))
-              AND (c.relname::text = ANY (CAST(:tenant_tables AS text[]))
+            SELECT array_agg(a.relname ORDER BY a.relname)
+            FROM app a
+            WHERE a.nspname = 'public'
+              AND a.relname <> ALL (CAST(:global_tables AS text[]))
+              AND (a.relname = ANY (CAST(:tenant_tables AS text[]))
                    OR EXISTS (
-                       SELECT 1 FROM pg_attribute a
-                       WHERE a.attrelid = c.oid AND a.attname = 'jurisdiction_id'
-                         AND NOT a.attisdropped))
-              AND NOT (c.relrowsecurity AND c.relforcerowsecurity)
+                       SELECT 1 FROM pg_attribute t
+                       WHERE t.attrelid = a.oid AND t.attname = 'jurisdiction_id'
+                         AND NOT t.attisdropped))
+              AND NOT (a.relrowsecurity AND a.relforcerowsecurity)
         ), ARRAY[]::text[]) AS unprotected_tables,
         COALESCE((
             SELECT array_agg(t ORDER BY t)
@@ -91,11 +93,9 @@ _INSPECT = text(
             SELECT array_agg(t ORDER BY t)
             FROM unnest(CAST(:tenant_tables AS text[])) AS t
             WHERE NOT EXISTS (
-                SELECT 1 FROM pg_attribute a
-                JOIN pg_class c ON c.oid = a.attrelid
-                JOIN pg_namespace n ON n.oid = c.relnamespace
-                WHERE n.nspname = 'public' AND c.relname::text = t
-                  AND a.attname = 'jurisdiction_id' AND a.attnotnull AND NOT a.attisdropped
+                SELECT 1 FROM app a JOIN pg_attribute k ON k.attrelid = a.oid
+                WHERE a.nspname = 'public' AND a.relname = t
+                  AND k.attname = 'jurisdiction_id' AND k.attnotnull AND NOT k.attisdropped
             )
         ), ARRAY[]::text[]) AS tenant_tables_malformed
     FROM pg_roles r WHERE r.rolname = current_user

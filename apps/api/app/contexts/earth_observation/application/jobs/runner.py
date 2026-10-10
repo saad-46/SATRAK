@@ -22,6 +22,8 @@ from collections.abc import Awaitable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
+import structlog
+
 from app.contexts.earth_observation.application.acquisition.discover_scenes import (
     INGEST_SCENE_TASK,
 )
@@ -29,7 +31,10 @@ from app.contexts.earth_observation.application.jobs.records import JobRecord
 from app.contexts.earth_observation.application.jobs.tracker import JobTracker
 from app.shared.domain.errors import BusinessRuleViolation
 from app.shared.domain.identifiers import EntityId, new_id, parse_id
+from app.shared.domain.scope import OutOfScopeError, TenantScope
 from app.shared.services.background_task import BackgroundTask, TaskQueue
+
+logger = structlog.get_logger("eo.jobs")
 
 TASK_INGEST_SCENE = INGEST_SCENE_TASK
 TASK_VALIDATE_SCENE = "earth_observation.validate_scene"
@@ -54,6 +59,16 @@ class UnknownTaskError(BusinessRuleViolation):
 
 class MissingPayloadField(BusinessRuleViolation):
     code = "missing_payload_field"
+
+
+def scope_from_payload(payload: Mapping[str, str]) -> TenantScope:
+    """The tenant a task acts for. A payload can only *narrow* work to one jurisdiction; it can
+    never name the all-tenants scope, which only code-defined system jobs may construct."""
+    try:
+        jurisdiction_id = parse_id(require_field(payload, "jurisdiction_id"))
+    except ValueError as exc:
+        raise MissingPayloadField("jurisdiction_id is not a valid identifier") from exc
+    return TenantScope(frozenset({jurisdiction_id}))
 
 
 def require_field(payload: Mapping[str, str], name: str) -> str:
@@ -133,6 +148,19 @@ class JobRunner:
 
         try:
             result = await handler(payload, progress=report)
+        except OutOfScopeError as exc:
+            # A task naming a record outside its own jurisdiction is a violation, not a transient
+            # fault: never retried and logged for review (ids only, no tenant data).
+            logger.warning(
+                "pipeline_scope_violation",
+                task=task.name,
+                job_id=str(job_id),
+                payload_jurisdiction_id=payload.get("jurisdiction_id"),
+                record_jurisdiction_id=str(exc.jurisdiction_id),
+            )
+            return await self._tracker.fail(
+                job_id, error="record is outside the task's jurisdiction", will_retry=False
+            )
         except Exception as exc:
             will_retry = attempt < self._max_attempts
             record = await self._tracker.fail(job_id, error=str(exc), will_retry=will_retry)
@@ -150,6 +178,7 @@ class JobRunner:
         if next_task is not None and not result.halt_chain:
             next_payload = {
                 "scene_id": require_field(payload, "scene_id"),
+                "jurisdiction_id": require_field(payload, "jurisdiction_id"),
                 **{str(k): str(v) for k, v in result.payload_update.items()},
             }
             await self._queue.enqueue(BackgroundTask(name=next_task, payload=next_payload))

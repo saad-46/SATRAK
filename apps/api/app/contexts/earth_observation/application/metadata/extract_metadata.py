@@ -18,6 +18,8 @@ from app.contexts.earth_observation.domain.ports.repositories import SceneReposi
 from app.contexts.earth_observation.domain.value_objects.band import BandSet
 from app.contexts.earth_observation.domain.value_objects.crs import CrsRef
 from app.shared.domain.identifiers import EntityId
+from app.shared.domain.scope import AccessScope
+from app.shared.persistence.scoped import ScopedRepository
 from app.shared.persistence.unit_of_work import UnitOfWork
 
 
@@ -41,15 +43,16 @@ class MetadataExtractionService:
         self._uow = uow
 
     async def extract_and_register(
-        self, *, scene_id: EntityId, source_uri: str
+        self, *, scene_id: EntityId, source_uri: str, scope: AccessScope
     ) -> ExtractedMetadata:
-        scene = await self._scenes.require(scene_id)
+        scenes = ScopedRepository(self._scenes, scope)
+        scene = await scenes.require(scene_id)
         extracted = await self._extractor.extract(source_uri=source_uri)
         scene.register(
             crs=merge_crs(scene.crs, extracted.crs),
             bands=merge_bands(scene.bands, extracted.bands),
         )
-        await self._scenes.update(scene)
+        await scenes.update(scene)
         self._uow.track(scene)
         await self._uow.commit()
         return extracted

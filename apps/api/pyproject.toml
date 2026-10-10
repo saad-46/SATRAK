@@ -142,6 +142,22 @@ type = "forbidden"
 source_modules = ["app.api", "app.main"]
 forbidden_modules = ["app.shared.domain.system_scope"]
 
+# No request path can start Earth Observation pipeline work today. A future endpoint that
+# triggers it must first derive the caller's jurisdiction and put it in the task payload, so
+# this contract is removed deliberately, in review, not by accident (ADR-0011).
+[[tool.importlinter.contracts]]
+name = "The web layer does not reach the pipeline services"
+type = "forbidden"
+source_modules = ["app.api", "app.main"]
+forbidden_modules = [
+    "app.contexts.earth_observation.application.acquisition",
+    "app.contexts.earth_observation.application.ingestion",
+    "app.contexts.earth_observation.application.metadata",
+    "app.contexts.earth_observation.application.preprocessing",
+    "app.contexts.earth_observation.application.tiling",
+    "app.contexts.earth_observation.application.jobs",
+]
+
 [[tool.importlinter.contracts]]
 name = "Core infrastructure does not depend on API or contexts"
 type = "forbidden"

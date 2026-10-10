@@ -38,7 +38,7 @@ from app.shared.domain.errors import ValueValidationError
 from app.shared.domain.events import DomainEvent
 from app.shared.events.bus import InMemoryEventBus
 from app.shared.persistence.unit_of_work import InMemoryUnitOfWork
-from tests.contexts.earth_observation.fakes import InMemorySceneRepository, make_scene
+from tests.contexts.earth_observation.fakes import SCOPE, InMemorySceneRepository, make_scene
 
 _GRID = RasterGrid(
     width=2, height=2, band_count=2, crs=CrsRef.wgs84(), origin_x=0.0, origin_y=2.0, pixel_size=1.0
@@ -158,7 +158,7 @@ async def test_full_pipeline_reaches_processed_with_hooks() -> None:
         thumbnailer=thumbnailer,
     )
 
-    result = await service.preprocess(scene_id=scene.id)
+    result = await service.preprocess(scene_id=scene.id, scope=SCOPE)
 
     assert scene.status is SceneStatus.PROCESSED
     assert result.status is SceneStatus.PROCESSED
@@ -191,7 +191,7 @@ async def test_reprocess_from_available_uses_new_version() -> None:
         spec=_spec(PipelineStep.NORMALIZE),
         loader=_Loader(_dataset()),
     )
-    result = await service.preprocess(scene_id=scene.id)
+    result = await service.preprocess(scene_id=scene.id, scope=SCOPE)
 
     assert result.pipeline_version == "1.0.0"
     assert scene.pipeline_version == "1.0.0"
@@ -215,7 +215,7 @@ async def test_failure_marks_failed_and_raises() -> None:
         loader=_Loader(error=RuntimeError("corrupt raster")),
     )
     with pytest.raises(PreprocessingError) as exc:
-        await service.preprocess(scene_id=scene.id)
+        await service.preprocess(scene_id=scene.id, scope=SCOPE)
 
     assert "corrupt raster" in str(exc.value)
     assert scene.status is SceneStatus.FAILED
@@ -263,7 +263,7 @@ async def test_hook_removed_after_construction_fails_with_domain_error(
     )
     setattr(service, attr, None)  # wiring drift after construction must not rely on `assert`
     with pytest.raises(PreprocessingError, match=needle):
-        await service.preprocess(scene_id=scene.id)
+        await service.preprocess(scene_id=scene.id, scope=SCOPE)
     assert scene.status is SceneStatus.FAILED
 
 
@@ -277,4 +277,4 @@ async def test_band_selection_without_indexes_fails_with_domain_error() -> None:
         scenes=scenes, uow=InMemoryUnitOfWork(), spec=spec, loader=_Loader(_dataset())
     )
     with pytest.raises(PreprocessingError, match="band_selection"):
-        await service.preprocess(scene_id=scene.id)
+        await service.preprocess(scene_id=scene.id, scope=SCOPE)

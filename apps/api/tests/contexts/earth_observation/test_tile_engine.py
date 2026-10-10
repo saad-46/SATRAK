@@ -28,7 +28,7 @@ from app.shared.domain.events import DomainEvent
 from app.shared.events.bus import InMemoryEventBus
 from app.shared.persistence.unit_of_work import InMemoryUnitOfWork
 from app.shared.services.storage import InMemoryStorageProvider
-from tests.contexts.earth_observation.fakes import BBOX, InMemorySceneRepository, make_scene
+from tests.contexts.earth_observation.fakes import BBOX, SCOPE, InMemorySceneRepository, make_scene
 
 
 # --- Tile matrix math ---------------------------------------------------------------
@@ -196,7 +196,7 @@ async def test_tiling_service_generates_versioned_pyramid() -> None:
         encoder=RawFloat32Encoder(),
         pyramid=PyramidSpec(min_zoom=1, max_zoom=2, tile_size=4),
     )
-    result = await service.generate(scene_id=scene.id)
+    result = await service.generate(scene_id=scene.id, scope=SCOPE)
 
     assert result.count == 2  # one tile at z=1, one at z=2 for this footprint
     assert result.tile_matrix_set == "WebMercatorQuad"
@@ -226,7 +226,7 @@ async def test_tiling_is_deterministic_across_runs() -> None:
             encoder=RawFloat32Encoder(),
             pyramid=PyramidSpec(min_zoom=1, max_zoom=2, tile_size=4),
         )
-        result = await service.generate(scene_id=scene.id)
+        result = await service.generate(scene_id=scene.id, scope=SCOPE)
         return tuple(record.checksum_sha256 for record in result.tiles)
 
     assert await run_once() == await run_once()
@@ -247,7 +247,7 @@ async def test_tiling_rejects_processed_scene_without_pipeline_version() -> None
         pyramid=PyramidSpec(min_zoom=1, max_zoom=1),
     )
     with pytest.raises(TilingError, match="pipeline_version"):
-        await service.generate(scene_id=scene.id)
+        await service.generate(scene_id=scene.id, scope=SCOPE)
 
 
 async def test_tiling_requires_processed_scene() -> None:
@@ -265,4 +265,4 @@ async def test_tiling_requires_processed_scene() -> None:
         pyramid=PyramidSpec(min_zoom=1, max_zoom=1),
     )
     with pytest.raises(TilingError):
-        await service.generate(scene_id=scene.id)
+        await service.generate(scene_id=scene.id, scope=SCOPE)

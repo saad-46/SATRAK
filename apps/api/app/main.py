@@ -17,12 +17,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.endpoints.earth_observation.composition import build_earth_observation_api
 from app.api.v1.router import api_router
 from app.core.auth import AuthRuntime, build_auth_runtime
+from app.core.authz import AccessStore
 from app.core.config import Settings, get_settings
 from app.core.exception_handlers import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import RequestContextMiddleware
 from app.core.openapi import build_custom_openapi
-from app.db.session import dispose_engine
+from app.db.access_store import SqlAccessStore
+from app.db.session import dispose_engine, get_sessionmaker
 
 
 @asynccontextmanager
@@ -39,7 +41,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("api_shutdown")
 
 
-def create_app(settings: Settings | None = None, *, auth: AuthRuntime | None = None) -> FastAPI:
+def _default_access_store(settings: Settings) -> AccessStore | None:
+    """PostgreSQL-backed store, or ``None`` (fail closed) when no database is configured."""
+    if settings.database_url is None:
+        return None
+    return SqlAccessStore(get_sessionmaker)
+
+
+def create_app(
+    settings: Settings | None = None,
+    *,
+    auth: AuthRuntime | None = None,
+    access: AccessStore | None = None,
+) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings)
 
@@ -54,6 +68,9 @@ def create_app(settings: Settings | None = None, *, auth: AuthRuntime | None = N
     app.state.settings = settings
     # ``auth`` is injectable so tests supply a runtime backed by a fake key set.
     app.state.auth = auth if auth is not None else build_auth_runtime(settings.auth)
+    # Authorization state (roles, assignments, jurisdictions). Defaults to PostgreSQL;
+    # tests inject an in-memory store with identical semantics.
+    app.state.access = access if access is not None else _default_access_store(settings)
     # Earth Observation API dependencies (in-memory backend today; swapped for the
     # SQLAlchemy/PostGIS adapter without endpoint changes when persistence lands).
     app.state.earth_observation = build_earth_observation_api()

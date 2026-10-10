@@ -6,6 +6,8 @@ directly, so wiring stays centralized and is trivial to override in tests.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Annotated, cast
 
 import structlog
@@ -13,8 +15,9 @@ from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import AuthRuntime, InvalidTokenError, JwksUnavailableError, Principal
+from app.core.authz import AccessContext, AccessStore, AccessUser
 from app.core.config import Settings
-from app.core.exceptions import ServiceUnavailableError, UnauthorizedError
+from app.core.exceptions import ForbiddenError, ServiceUnavailableError, UnauthorizedError
 from app.db.session import get_db
 
 logger = structlog.get_logger("api.auth")
@@ -90,3 +93,58 @@ async def get_current_principal(request: Request) -> Principal:
 
 
 PrincipalDep = Annotated[Principal, Depends(get_current_principal)]
+
+
+def get_access_store(request: Request) -> AccessStore:
+    store = getattr(request.app.state, "access", None)
+    if store is None:
+        # Fail closed: without an authorization store nothing can be allowed.
+        raise ServiceUnavailableError("Authorization is not available.", code="authz_unavailable")
+    return cast(AccessStore, store)
+
+
+AccessStoreDep = Annotated[AccessStore, Depends(get_access_store)]
+
+
+async def get_current_user(principal: PrincipalDep, store: AccessStoreDep) -> AccessUser:
+    """Resolve the token's identity to a local user (JIT-provisioned with no permissions)."""
+    try:
+        user = await store.get_or_create_user(issuer=principal.issuer, subject=principal.subject)
+    except Exception as exc:  # fail closed on any store failure
+        logger.error("authz_user_lookup_failed", error=type(exc).__name__)
+        raise ServiceUnavailableError(
+            "Authorization is temporarily unavailable.", code="authz_unavailable"
+        ) from exc
+    if user.is_disabled:
+        raise ForbiddenError("The account is disabled.", code="account_disabled")
+    return user
+
+
+CurrentUserDep = Annotated[AccessUser, Depends(get_current_user)]
+
+
+def require_permission(permission: str) -> Callable[..., Awaitable[AccessContext]]:
+    """Dependency factory: authenticate, then require ``permission`` somewhere.
+
+    Returns the :class:`AccessContext` listing the jurisdictions in which it holds. A caller
+    with the permission nowhere is rejected here (403); endpoints then restrict lists to the
+    context and check object access with ``ctx.require(jurisdiction_id)``.
+    """
+
+    async def dependency(user: CurrentUserDep, store: AccessStoreDep) -> AccessContext:
+        try:
+            jurisdictions = await store.permitted_jurisdictions(
+                user_id=user.id, permission=permission, at=datetime.now(UTC)
+            )
+        except Exception as exc:  # fail closed
+            logger.error("authz_check_failed", permission=permission, error=type(exc).__name__)
+            raise ServiceUnavailableError(
+                "Authorization is temporarily unavailable.", code="authz_unavailable"
+            ) from exc
+        context = AccessContext(user.id, permission, jurisdictions)
+        if not jurisdictions:
+            logger.info("access_denied", permission=permission, reason="no_grant")
+            raise ForbiddenError(code="forbidden")
+        return context
+
+    return dependency

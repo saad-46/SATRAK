@@ -11,6 +11,10 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import UTC, datetime
 
+# Hard cap on distinct label sets per metric, so a label fed by untrusted input can never grow
+# the registry (or a scraper's time-series count) without bound.
+MAX_SERIES_PER_METRIC = 200
+
 
 class MetricsRegistry:
     """Thread-unsafe but adequate in-process counters (single event loop)."""
@@ -22,6 +26,10 @@ class MetricsRegistry:
 
     def increment(self, name: str, value: int = 1, **labels: str) -> None:
         key = (name, tuple(sorted(labels.items())))
+        if key not in self._counters:
+            series = sum(1 for existing, _ in self._counters if existing == name)
+            if series >= MAX_SERIES_PER_METRIC:
+                key = (name, (("overflow", "true"),))  # one shared bucket past the cap
         self._counters[key] += value
 
     def mark(self, name: str) -> None:

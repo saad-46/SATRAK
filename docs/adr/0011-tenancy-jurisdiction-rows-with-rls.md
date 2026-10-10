@@ -115,7 +115,21 @@ default to jurisdiction isolation. The PRD's tenant-less tables (`model_version`
 - Earth Observation data is in memory today, so no persisted EO table exists to put under RLS;
   isolation there is enforced by the required repository `AccessScope`. Moving EO to PostgreSQL
   must add its tables to `TENANT_TABLES` with policies (the coverage test fails otherwise).
-- By-id repository methods (`get`, `list`, `get_by_provider_scene_id`) are not scoped; endpoints
-  must call `access.require` on the result (the 403 contract). Collection reads are scoped.
+- The raw EO repositories (`get`, `list`, `add`, `update`, `get_by_provider_scene_id`) are unscoped and
+  reserved for trusted pipeline code and tests. Request handlers must use `EarthObservationApi.scoped_scenes`
+  / `scoped_aois` (a `ScopedRepository` that requires a scope: foreign reads raise `OutOfScopeError`, which
+  the endpoint turns into the audited 403, and writes into or over a foreign jurisdiction are refused) or the
+  scope-taking collection methods. An AST test fails if an endpoint touches `eo.scenes`/`eo.aois` otherwise.
+  Pipeline services still receive the raw repositories, so a job handed a wrong id acts on it; those paths
+  are not request-reachable but are not tenant-checked either.
 - The deployment must ensure only the trusted proxy can reach the API port; `X-Forwarded-For`
   is honoured only from `trusted_proxy_cidrs`.
+
+### Pre-publication pass: classification
+
+The startup check now fails on (a) any table outside the extension-owned ones that is in neither
+`TENANT_TABLES` nor `GLOBAL_TABLES`, in `public` or any other schema; (b) a table that is tenant-owned
+(declared, or carrying `jurisdiction_id`) without enabled **and** forced RLS; (c) a declared tenant table that
+is missing, has a nullable or absent `jurisdiction_id`, or has no policy; plus the role checks above, with
+role membership tested via `MEMBER` (inherited privileges included). Extension tables (PostGIS) are exempt
+through `pg_depend`. Nothing here verifies what a policy _says_; that is covered by the RLS tests.

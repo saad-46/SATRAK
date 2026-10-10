@@ -112,5 +112,38 @@ refresh tokens are held by the SPA/BFF; MFA enforcement location; service-accoun
   are joined before the hop count is applied. With hops 0 behind a load balancer all clients share one
   bucket, so production logs `rate_limit_no_trusted_proxy`. The deployment must still ensure only the
   proxy can reach the API port.
-- **Readiness.** `/health/ready` is unauthenticated by design. It is now limited per IP (`api_ip`), caches its
-  result for 2 s, reuses the shared Redis pool, and returns only `unavailable` as detail.
+- **Readiness.** `/health/ready` is unauthenticated by design. It caches its result for 2 s, runs one probe at a
+  time (concurrent callers share it), gives each probe a 2 s timeout, reuses the shared Redis pool, and returns
+  only `unavailable` as detail. It has no per-IP limit: the cache and the single probe already bound the
+  backend cost, and a limit would make probes themselves return 429 to the orchestrator.
+
+## Pre-publication pass (owner request 2026-10-10)
+
+- **Mandatory identifiers.** `iss`, `aud`, `sub`, `iat` and `exp` were already required. A token must now also
+  carry `sid` or `jti` (`auth.require_session_identifier`, default on; refused with `missing_session_id`).
+  Without either, an individual token cannot be revoked, only the whole user. The setting cannot be turned
+  off in staging or production. Which of `sid`/`jti` the IdP actually emits is **unconfirmed**.
+- **Bounded lifetime.** `exp - iat` may not exceed `auth.max_token_lifetime_seconds` (default 900, the PRD's
+  15-minute access tokens, plus the clock-skew allowance); longer tokens are refused (`lifetime_too_long`).
+  This caps the exposure when the IdP disables a user without telling SATRAK: the token dies by itself.
+- **What is and is not guaranteed.** Revocation made _through SATRAK_ (logout, administrator revoke) is read
+  from PostgreSQL on every request and is covered by tests for the next request and a second instance. Nothing
+  here learns of a revocation made only at the IdP (no back-channel logout or introspection is implemented);
+  for that case the guarantee is the token lifetime above (15 minutes), **not** one minute. Meeting the
+  one-minute SLA for IdP-side revocation needs an IdP-supplied signal and is an open decision.
+- **Fail-secure environment.** `SATRAK_API_ENVIRONMENT` now defaults to `production`, so a deployment that
+  forgets it is validated as production (Redis, database, auth and role-check requirements) rather than
+  inheriting development behaviour. Local development sets `development` in `.env` (see `.env.example`).
+  Staging and production also reject: auth disabled, optional session identifiers, rate limiting off or
+  without Redis, no database URL, `debug`, `database_role_check=warn`, wildcard CORS, proxy hops without CIDRs.
+- **Trusted proxy, exact configuration.** Set `SATRAK_API_RATE_LIMIT_TRUSTED_PROXY_HOPS` to the number of
+  proxies that append to `X-Forwarded-For` and `SATRAK_API_RATE_LIMIT_TRUSTED_PROXY_CIDRS` to the networks
+  those proxies connect from (IPv4-mapped IPv6 forms such as `::ffff:10.0.0.0/104` are read as IPv4; a range
+  that trusts every address is rejected). A request whose TCP peer is outside the range, or any request when
+  hops is 0, is keyed by its peer address; spoofed headers are ignored. This protects rate-limit keys only:
+  the network (security group, NetworkPolicy, private subnet) must still stop anything but the proxy from
+  reaching the API port, and uvicorn `--proxy-headers`/`--forwarded-allow-ips` must not be enabled with a
+  wider list than the CIDRs above. No such network control exists in this repository (`infra/k8s` and
+  `infra/terraform` are empty) and remains a deployment task.
+- **Metric cardinality.** HTTP methods outside the standard set share the label `OTHER`, and any metric stops
+  at 200 label sets (the rest go to an `overflow` bucket).

@@ -14,6 +14,8 @@ from app.contexts.earth_observation.application.queries import SceneQueryService
 from app.contexts.earth_observation.application.timeline.query_timeline import (
     RepositoryTimelineProvider,
 )
+from app.contexts.earth_observation.domain.aggregates.aoi import AreaOfInterest
+from app.contexts.earth_observation.domain.aggregates.scene import Scene
 from app.contexts.earth_observation.domain.ports.repositories import (
     AoiRepository,
     SceneRepository,
@@ -23,6 +25,8 @@ from app.contexts.earth_observation.infrastructure.persistence import (
     InMemorySceneRepository,
 )
 from app.contexts.earth_observation.infrastructure.storage.keying import StorageKeyStrategy
+from app.shared.domain.scope import AccessScope
+from app.shared.persistence.scoped import ScopedRepository
 from app.shared.services.storage import InMemoryStorageProvider, StorageProvider
 
 
@@ -36,6 +40,14 @@ class EarthObservationApi:
     keys: StorageKeyStrategy
     scene_query: SceneQueryService
     timeline: RepositoryTimelineProvider
+
+    # The raw repositories above are for trusted pipeline code and tests. Request handlers
+    # reach tenant data only through these scope-bound views (enforced by an architecture test).
+    def scoped_scenes(self, scope: AccessScope) -> ScopedRepository[Scene]:
+        return ScopedRepository(self.scenes, scope)
+
+    def scoped_aois(self, scope: AccessScope) -> ScopedRepository[AreaOfInterest]:
+        return ScopedRepository(self.aois, scope)
 
 
 def build_earth_observation_api() -> EarthObservationApi:

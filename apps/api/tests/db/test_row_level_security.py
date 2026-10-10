@@ -550,3 +550,69 @@ async def test_a_jurisdiction_table_without_forced_rls_is_rejected(
         async with owner.begin() as conn:
             await conn.execute(text("DROP TABLE IF EXISTS leaky_tenant_data"))
         await owner.dispose()
+
+
+@pytest.mark.parametrize(
+    ("ddl", "table", "expected"),
+    [
+        ("CREATE TABLE scratch_unlisted (id int)", "scratch_unlisted", "neither as tenant"),
+        (
+            "CREATE SCHEMA scratch_schema; CREATE TABLE scratch_schema.t (id int)",
+            "scratch_schema.t",
+            "neither as tenant",
+        ),
+        (
+            "CREATE TABLE scratch_open (jurisdiction_id uuid NOT NULL);"
+            " ALTER TABLE scratch_open ENABLE ROW LEVEL SECURITY",  # enabled but not forced
+            "scratch_open",
+            "enabled and forced",
+        ),
+    ],
+    ids=["unclassified-no-column", "other-schema", "rls-not-forced"],
+)
+async def test_unclassified_or_unprotected_tables_cannot_pass_startup(
+    world: Fixture, migrated_database: str, ddl: str, table: str, expected: str
+) -> None:
+    from app.db.role_check import UnsafeDatabaseRoleError, assert_safe_application_role
+
+    owner = create_async_engine(migrated_database)
+    try:
+        async with owner.begin() as conn:
+            for statement in ddl.split(";"):
+                await conn.execute(text(statement))
+            if "." in table:
+                await conn.execute(text("GRANT USAGE ON SCHEMA scratch_schema TO satrak_app"))
+        with pytest.raises(UnsafeDatabaseRoleError, match=expected) as caught:
+            await assert_safe_application_role(world.app)
+        assert table.split(".")[-1] in str(caught.value) or "scratch" in str(caught.value)
+    finally:
+        async with owner.begin() as conn:
+            await conn.execute(text("DROP TABLE IF EXISTS scratch_unlisted, scratch_open"))
+            await conn.execute(text("DROP SCHEMA IF EXISTS scratch_schema CASCADE"))
+        await owner.dispose()
+
+
+async def test_a_declared_tenant_table_must_have_a_policy_and_a_non_null_column(
+    world: Fixture, migrated_database: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.db import role_check
+    from app.db.role_check import UnsafeDatabaseRoleError, assert_safe_application_role
+
+    owner = create_async_engine(migrated_database)
+    monkeypatch.setattr(
+        role_check, "TENANT_TABLES", TENANT_TABLES | {"scratch_tenant", "scratch_missing"}
+    )
+    try:
+        async with owner.begin() as conn:
+            await conn.execute(text("CREATE TABLE scratch_tenant (jurisdiction_id uuid)"))
+            await conn.execute(text("ALTER TABLE scratch_tenant ENABLE ROW LEVEL SECURITY"))
+            await conn.execute(text("ALTER TABLE scratch_tenant FORCE ROW LEVEL SECURITY"))
+        with pytest.raises(UnsafeDatabaseRoleError) as caught:
+            await assert_safe_application_role(world.app)
+        message = str(caught.value)
+        assert "without a policy" in message and "scratch_tenant" in message
+        assert "NOT NULL jurisdiction_id" in message and "scratch_missing" in message
+    finally:
+        async with owner.begin() as conn:
+            await conn.execute(text("DROP TABLE IF EXISTS scratch_tenant"))
+        await owner.dispose()

@@ -106,13 +106,20 @@ class TokenVerifier:
             expires_at = datetime.fromtimestamp(float(claims["exp"]), tz=UTC)
         except (TypeError, ValueError, OverflowError, OSError) as exc:
             raise InvalidTokenError("bad_timestamp") from exc
+        token_id = _optional_str(claims.get("jti"))
+        session_id = _optional_str(claims.get("sid"))
+        if self._settings.require_session_identifier and token_id is None and session_id is None:
+            raise InvalidTokenError("missing_session_id")  # cannot be revoked individually
+        lifetime = (expires_at - issued_at).total_seconds()
+        if lifetime > self._settings.max_token_lifetime_seconds + self._settings.clock_skew_seconds:
+            raise InvalidTokenError("lifetime_too_long")
         return Principal(
             subject=subject,
             issuer=self._issuer,
             issued_at=issued_at,
             expires_at=expires_at,
-            token_id=_optional_str(claims.get("jti")),
-            session_id=_optional_str(claims.get("sid")),
+            token_id=token_id,
+            session_id=session_id,
         )
 
 

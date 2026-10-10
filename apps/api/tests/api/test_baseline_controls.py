@@ -98,6 +98,7 @@ async def test_hsts_is_sent_in_production(idp: TestIdp) -> None:
         log_format="console",
         auth=auth_settings(),
         redis_url="redis://localhost:6379/0",
+        database_url="postgresql+asyncpg://u:p@localhost:5432/satrak",
     )
     app = create_app(prod, auth=idp.runtime(prod.auth))
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:

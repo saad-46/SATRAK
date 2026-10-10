@@ -372,7 +372,12 @@ def test_unknown_policy_overrides_are_rejected() -> None:
 
 
 def test_production_cannot_disable_limits_or_run_without_redis() -> None:
-    base = {"environment": Environment.PRODUCTION, "auth": auth_settings(), "log_format": "console"}
+    base = {
+        "environment": Environment.PRODUCTION,
+        "auth": auth_settings(),
+        "log_format": "console",
+        "database_url": "postgresql+asyncpg://u:p@db:5432/satrak",
+    }
     with pytest.raises(ValueError, match="rate limiting cannot be disabled"):
         Settings(**base, rate_limit=RateLimitSettings(enabled=False), redis_url="redis://r:6379/0")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="requires redis_url"):

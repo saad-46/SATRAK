@@ -12,6 +12,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
+from app.shared.domain.errors import DomainError
 from app.shared.domain.identifiers import EntityId
 
 _PERMITTED_MODULES = frozenset({__name__, "app.shared.domain.system_scope"})
@@ -41,3 +42,13 @@ class TenantScope(AccessScope):
 
     def allows(self, jurisdiction_id: EntityId | None) -> bool:
         return jurisdiction_id is not None and jurisdiction_id in self.jurisdiction_ids
+
+
+class OutOfScopeError(DomainError):
+    """An existing row belongs to a jurisdiction outside the caller's scope."""
+
+    code = "out_of_scope"
+
+    def __init__(self, jurisdiction_id: EntityId | None) -> None:
+        super().__init__("the record is outside the caller's access scope")
+        self.jurisdiction_id = jurisdiction_id

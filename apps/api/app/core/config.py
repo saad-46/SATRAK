@@ -80,6 +80,14 @@ class AuthSettings(BaseSettings):
     jwks_min_refresh_interval_seconds: int = Field(default=30, ge=1)
     jwks_fetch_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
     max_token_bytes: int = Field(default=8192, ge=256, le=65536)
+    # Revocation needs a per-session handle: ``sid`` (preferred) or ``jti``. Tokens carrying
+    # neither can only be revoked per user, so they are refused unless this is switched off
+    # (dev/test only; rejected in staging/production).
+    require_session_identifier: bool = True
+    # Longest accepted ``exp - iat`` (PRD: 15-minute access tokens). Bounds how long a token
+    # stays usable if the IdP disables a user without telling SATRAK, and bounds session-registry
+    # growth. Raise it only after revisiting the one-minute revocation requirement (NFR-18.2).
+    max_token_lifetime_seconds: int = Field(default=900, ge=60, le=86400)
     # How long after a session's token expired its registry row is kept before pruning. The row
     # is needed only until the token expires (a revoked token must stay refused); the value is an
     # engineering placeholder, NOT a legal retention period: confirm against the records policy.
@@ -184,12 +192,27 @@ class RateLimitSettings(BaseSettings):
     @classmethod
     def _valid_cidrs(cls, value: list[str]) -> list[str]:
         for entry in value:
-            ipaddress.ip_network(entry, strict=False)  # raises ValueError on garbage
+            network = ipaddress.ip_network(entry, strict=False)  # raises ValueError on garbage
+            if network.prefixlen == 0:  # 0.0.0.0/0 or ::/0 would trust every peer
+                raise ValueError("trusted_proxy_cidrs must not trust every address")
         return value
 
     @property
     def trusted_networks(self) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
-        return [ipaddress.ip_network(entry, strict=False) for entry in self.trusted_proxy_cidrs]
+        networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+        for entry in self.trusted_proxy_cidrs:
+            network = ipaddress.ip_network(entry, strict=False)
+            if (
+                isinstance(network, ipaddress.IPv6Network)
+                and network.prefixlen >= 96
+                and network.network_address.ipv4_mapped is not None
+            ):
+                # ``::ffff:10.0.0.0/104`` means 10.0.0.0/8: peers are compared as IPv4.
+                network = ipaddress.ip_network(
+                    (network.network_address.ipv4_mapped, network.prefixlen - 96), strict=False
+                )
+            networks.append(network)
+        return networks
 
     @model_validator(mode="after")
     def _known_policies_only(self) -> RateLimitSettings:
@@ -220,7 +243,10 @@ class Settings(BaseSettings):
 
     # --- Application ---------------------------------------------------------
     app_name: str = "SATRAK API"
-    environment: Environment = Environment.DEVELOPMENT
+    # Fail-secure default: an unset value is treated as production, so a deployment that forgets
+    # SATRAK_API_ENVIRONMENT gets the strictest validation instead of silently inheriting
+    # development behaviour. Local development sets it to ``development`` in ``.env``.
+    environment: Environment = Environment.PRODUCTION
     debug: bool = False
     version: str = "0.1.0"
 
@@ -299,6 +325,18 @@ class Settings(BaseSettings):
                 "rate_limit.trusted_proxy_cidrs is required when trusted_proxy_hops > 0 "
                 "in staging or production"
             )
+        if not self.auth.require_session_identifier and self.environment in (
+            Environment.STAGING,
+            Environment.PRODUCTION,
+        ):
+            raise ValueError("auth.require_session_identifier cannot be disabled in staging/prod")
+        if self.debug and self.environment in (Environment.STAGING, Environment.PRODUCTION):
+            raise ValueError("debug cannot be enabled in staging or production")
+        if self.database_url is None and self.environment in (
+            Environment.STAGING,
+            Environment.PRODUCTION,
+        ):
+            raise ValueError("database_url is required in staging or production")
         if "*" in self.cors_origins:
             raise ValueError("cors_origins must list explicit origins (credentials are allowed)")
         if (

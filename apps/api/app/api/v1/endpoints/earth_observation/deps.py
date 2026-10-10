@@ -10,8 +10,12 @@ from fastapi import Depends, Request
 from app.api.deps import require_permission
 from app.api.v1.endpoints.earth_observation.composition import EarthObservationApi
 from app.core.authz import AccessContext
+from app.core.exceptions import NotFoundError
 from app.shared.domain.clock import utcnow
 from app.shared.domain.errors import ValueValidationError
+from app.shared.domain.identifiers import EntityId
+from app.shared.domain.scope import OutOfScopeError
+from app.shared.persistence.scoped import JurisdictionOwned, ScopedRepository
 from app.shared.value_objects.geo import BoundingBox
 from app.shared.value_objects.ranges import TimeRange
 
@@ -29,6 +33,20 @@ EoDep = Annotated[EarthObservationApi, Depends(get_eo)]
 SceneReadAccess = Annotated[AccessContext, Depends(require_permission("eo:scene:read"))]
 AoiReadAccess = Annotated[AccessContext, Depends(require_permission("eo:aoi:read"))]
 TileReadAccess = Annotated[AccessContext, Depends(require_permission("eo:tile:read"))]
+
+
+async def load_owned[T: JurisdictionOwned](
+    repository: ScopedRepository[T], entity_id: EntityId, access: AccessContext, label: str
+) -> T:
+    """Fetch through a scope-bound repository: 404 if absent, audited 403 if foreign."""
+    try:
+        entity = await repository.get(entity_id)
+    except OutOfScopeError as exc:
+        raise access.denial(exc.jurisdiction_id) from exc
+    if entity is None:
+        raise NotFoundError(f"{label} {entity_id} not found")
+    access.require(entity.jurisdiction_id)
+    return entity
 
 
 def parse_bbox(bbox: str) -> BoundingBox:

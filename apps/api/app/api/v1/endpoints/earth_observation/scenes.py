@@ -17,6 +17,7 @@ from app.api.schemas import PageResponse
 from app.api.v1.endpoints.earth_observation.deps import (
     EoDep,
     SceneReadAccess,
+    load_owned,
     optional_window,
     parse_bbox,
 )
@@ -28,7 +29,6 @@ from app.api.v1.endpoints.earth_observation.schemas import (
 )
 from app.contexts.earth_observation.domain.enums import SceneStatus, SensorType
 from app.contexts.earth_observation.domain.ports.repositories import SceneQuery
-from app.core.exceptions import NotFoundError
 from app.shared.pagination import Page
 
 router = APIRouter(tags=["earth-observation: scenes"])
@@ -71,10 +71,7 @@ async def search_scenes(
 
 @router.get("/{scene_id}", response_model=SceneDetail, summary="Scene details")
 async def get_scene(scene_id: UUID, eo: EoDep, access: SceneReadAccess) -> SceneDetail:
-    scene = await eo.scenes.get(scene_id)
-    if scene is None:
-        raise NotFoundError(f"scene {scene_id} not found")
-    access.require(scene.jurisdiction_id)
+    scene = await load_owned(eo.scoped_scenes(access.scope), scene_id, access, "scene")
     return SceneDetail.from_domain(scene)
 
 
@@ -82,10 +79,7 @@ async def get_scene(scene_id: UUID, eo: EoDep, access: SceneReadAccess) -> Scene
 async def get_scene_status(
     scene_id: UUID, eo: EoDep, access: SceneReadAccess
 ) -> SceneStatusResponse:
-    scene = await eo.scenes.get(scene_id)
-    if scene is None:
-        raise NotFoundError(f"scene {scene_id} not found")
-    access.require(scene.jurisdiction_id)
+    scene = await load_owned(eo.scoped_scenes(access.scope), scene_id, access, "scene")
     return SceneStatusResponse.from_domain(scene)
 
 
@@ -93,8 +87,5 @@ async def get_scene_status(
 async def get_scene_metadata(
     scene_id: UUID, eo: EoDep, access: SceneReadAccess
 ) -> SceneMetadataResponse:
-    scene = await eo.scenes.get(scene_id)
-    if scene is None:
-        raise NotFoundError(f"scene {scene_id} not found")
-    access.require(scene.jurisdiction_id)
+    scene = await load_owned(eo.scoped_scenes(access.scope), scene_id, access, "scene")
     return SceneMetadataResponse.from_domain(scene)

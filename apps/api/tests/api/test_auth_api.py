@@ -197,6 +197,7 @@ async def test_docs_are_not_exposed_in_production() -> None:
         log_format="console",
         auth=auth_settings(),
         redis_url="redis://localhost:6379/0",  # required in production (rate limiting)
+        database_url="postgresql+asyncpg://u:p@localhost:5432/satrak",
     )
     app = create_app(prod, auth=TestIdp().runtime(prod.auth))
     transport = ASGITransport(app=app)

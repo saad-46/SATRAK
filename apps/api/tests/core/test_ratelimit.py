@@ -10,6 +10,7 @@ import asyncio
 import os
 import uuid
 from collections.abc import AsyncIterator
+from typing import Any
 
 import pytest
 import pytest_asyncio
@@ -221,3 +222,65 @@ def test_trusted_proxy_cidrs_are_validated_and_required_in_production() -> None:
             auth=auth_settings(),
             rate_limit=RateLimitSettings(trusted_proxy_hops=1),
         )
+
+
+# --- Trusted proxy: end-to-end through the request helper -------------------------------------
+def _request(settings: Any, peer: str, forwarded_for: str | None) -> Any:
+    from types import SimpleNamespace
+
+    from starlette.requests import Request
+
+    headers = [(b"x-forwarded-for", forwarded_for.encode())] if forwarded_for else []
+    app = SimpleNamespace(state=SimpleNamespace(settings=settings))
+    return Request(
+        {"type": "http", "headers": headers, "client": (peer, 40000), "app": app, "method": "GET"}
+    )
+
+
+def _settings(**rate: Any) -> Any:
+    from tests.auth_support import make_settings
+
+    return make_settings().model_copy(
+        update={"rate_limit": make_settings().rate_limit.model_copy(update=rate)}
+    )
+
+
+def test_direct_untrusted_access_cannot_spoof_the_client_ip() -> None:
+    from app.api.ratelimit import client_ip
+
+    behind = _settings(trusted_proxy_hops=1, trusted_proxy_cidrs=["10.0.0.0/8"])
+    # A client connecting straight to the API (peer outside the proxy range) is keyed by its peer.
+    assert client_ip(_request(behind, "203.0.113.9", "198.51.100.7")) == "203.0.113.9"
+    # No proxy configured at all: the header is never believed.
+    assert client_ip(_request(_settings(), "203.0.113.9", "198.51.100.7")) == "203.0.113.9"
+    # The trusted proxy's own appended entry is honoured; client-supplied left entries are not.
+    assert client_ip(_request(behind, "10.1.2.3", "6.6.6.6, 198.51.100.7")) == "198.51.100.7"
+    # Fewer entries than trusted hops: ignore the header rather than guess.
+    two_hops = _settings(trusted_proxy_hops=2, trusted_proxy_cidrs=["10.0.0.0/8"])
+    assert client_ip(_request(two_hops, "10.1.2.3", "198.51.100.7")) == "10.1.2.3"
+    # Malformed entries fall back to the peer.
+    assert client_ip(_request(behind, "10.1.2.3", "not-an-ip")) == "10.1.2.3"
+
+
+def test_ipv4_mapped_peers_and_networks_are_handled_as_ipv4() -> None:
+    from app.api.ratelimit import client_ip
+
+    plain = _settings(trusted_proxy_hops=1, trusted_proxy_cidrs=["10.0.0.0/8"])
+    mapped = _settings(trusted_proxy_hops=1, trusted_proxy_cidrs=["::ffff:10.0.0.0/104"])
+    for settings in (plain, mapped):
+        # The proxy connects over a dual-stack socket: its peer address is IPv4-mapped.
+        assert client_ip(_request(settings, "::ffff:10.1.2.3", "198.51.100.7")) == "198.51.100.7"
+        # An untrusted mapped peer is still untrusted and keyed as plain IPv4.
+        assert client_ip(_request(settings, "::ffff:203.0.113.9", "198.51.100.7")) == "203.0.113.9"
+    # A mapped client address in the forwarded header is normalised to IPv4.
+    assert client_ip(_request(plain, "10.1.2.3", "::ffff:198.51.100.7")) == "198.51.100.7"
+
+
+@pytest.mark.parametrize("everything", ["0.0.0.0/0", "::/0"])
+def test_a_proxy_range_that_trusts_every_address_is_rejected(everything: str) -> None:
+    from pydantic import ValidationError
+
+    from app.core.config import RateLimitSettings
+
+    with pytest.raises(ValidationError):
+        RateLimitSettings(trusted_proxy_hops=1, trusted_proxy_cidrs=[everything])

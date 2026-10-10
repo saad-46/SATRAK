@@ -14,7 +14,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Header, Query, Response
 
-from app.api.v1.endpoints.earth_observation.deps import EoDep, TileReadAccess
+from app.api.v1.endpoints.earth_observation.deps import EoDep, TileReadAccess, load_owned
 from app.api.v1.endpoints.earth_observation.schemas import TileMetadataResponse
 from app.contexts.earth_observation.domain.aggregates.scene import Scene
 from app.contexts.earth_observation.domain.value_objects.tile import (
@@ -34,10 +34,7 @@ _CACHE_CONTROL = "private, max-age=3600"  # tenant imagery: never in shared cach
 async def _resolve_version(
     scene_id: UUID, eo: EoDep, access: TileReadAccess, version: str | None
 ) -> tuple[Scene, str]:
-    scene = await eo.scenes.get(scene_id)
-    if scene is None:
-        raise NotFoundError(f"scene {scene_id} not found")
-    access.require(scene.jurisdiction_id)
+    scene = await load_owned(eo.scoped_scenes(access.scope), scene_id, access, "scene")
     resolved = version if version is not None else scene.pipeline_version
     if resolved is None:
         raise NotFoundError(f"scene {scene_id} has no processed tiles yet")

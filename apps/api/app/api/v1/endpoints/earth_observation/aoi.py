@@ -20,6 +20,7 @@ from app.api.v1.endpoints.earth_observation.deps import (
     EoDep,
     SceneReadAccess,
     default_window,
+    load_owned,
 )
 from app.api.v1.endpoints.earth_observation.schemas import (
     AoiDetail,
@@ -28,7 +29,6 @@ from app.api.v1.endpoints.earth_observation.schemas import (
     SceneSummary,
     TimelineResponse,
 )
-from app.core.exceptions import NotFoundError
 from app.shared.domain.scope import TenantScope
 from app.shared.pagination import Page
 
@@ -54,10 +54,7 @@ async def list_aois(
 
 @router.get("/{aoi_id}", response_model=AoiDetail, summary="AOI details")
 async def get_aoi(aoi_id: UUID, eo: EoDep, access: AoiReadAccess) -> AoiDetail:
-    aoi = await eo.aois.get(aoi_id)
-    if aoi is None:
-        raise NotFoundError(f"AOI {aoi_id} not found")
-    access.require(aoi.jurisdiction_id)
+    aoi = await load_owned(eo.scoped_aois(access.scope), aoi_id, access, "AOI")
     return AoiDetail.from_domain(aoi)
 
 
@@ -76,10 +73,7 @@ async def get_aoi_timeline(
     to: datetime | None = Query(None),
     limit: int = Query(100, ge=1, le=500),
 ) -> TimelineResponse:
-    aoi = await eo.aois.get(aoi_id)
-    if aoi is None:
-        raise NotFoundError(f"AOI {aoi_id} not found")
-    access.require(aoi.jurisdiction_id)
+    aoi = await load_owned(eo.scoped_aois(access.scope), aoi_id, access, "AOI")
     scene_access.require(aoi.jurisdiction_id)
     scenes = await eo.timeline.timeline(
         area=aoi.bounding_box,

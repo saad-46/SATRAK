@@ -14,7 +14,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Header, Query, Response
 
-from app.api.v1.endpoints.earth_observation.deps import EoDep
+from app.api.v1.endpoints.earth_observation.deps import EoDep, TileReadAccess
 from app.api.v1.endpoints.earth_observation.schemas import TileMetadataResponse
 from app.contexts.earth_observation.domain.aggregates.scene import Scene
 from app.contexts.earth_observation.domain.value_objects.tile import (
@@ -31,10 +31,13 @@ _TILE_EXTENSION = "bin"
 _CACHE_CONTROL = "public, max-age=3600"
 
 
-async def _resolve_version(scene_id: UUID, eo: EoDep, version: str | None) -> tuple[Scene, str]:
+async def _resolve_version(
+    scene_id: UUID, eo: EoDep, access: TileReadAccess, version: str | None
+) -> tuple[Scene, str]:
     scene = await eo.scenes.get(scene_id)
     if scene is None:
         raise NotFoundError(f"scene {scene_id} not found")
+    access.require(scene.jurisdiction_id)
     resolved = version if version is not None else scene.pipeline_version
     if resolved is None:
         raise NotFoundError(f"scene {scene_id} has no processed tiles yet")
@@ -70,10 +73,11 @@ async def get_tile(
     x: int,
     y: int,
     eo: EoDep,
+    access: TileReadAccess,
     version: str | None = Query(None, description="Pin a pipeline version"),
     if_none_match: str | None = Header(None),
 ) -> Response:
-    _, resolved = await _resolve_version(scene_id, eo, version)
+    _, resolved = await _resolve_version(scene_id, eo, access, version)
     key = _tile_key(eo, scene_id, resolved, z, x, y)
     obj = await _open_tile(eo, key, z, x, y, scene_id)
     etag = _etag(obj.data)
@@ -97,9 +101,10 @@ async def get_tile_metadata(
     x: int,
     y: int,
     eo: EoDep,
+    access: TileReadAccess,
     version: str | None = Query(None, description="Pin a pipeline version"),
 ) -> TileMetadataResponse:
-    _, resolved = await _resolve_version(scene_id, eo, version)
+    _, resolved = await _resolve_version(scene_id, eo, access, version)
     key = _tile_key(eo, scene_id, resolved, z, x, y)
     obj = await _open_tile(eo, key, z, x, y, scene_id)
     return TileMetadataResponse(

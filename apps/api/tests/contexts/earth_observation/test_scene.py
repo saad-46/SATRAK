@@ -27,10 +27,12 @@ from app.contexts.earth_observation.domain.value_objects import (
 )
 from app.shared.domain.errors import InvariantViolation
 from app.shared.value_objects.geo import BoundingBox
+from tests.contexts.earth_observation.fakes import JURISDICTION
 
 
 def _make_scene() -> Scene:
     return Scene.create(
+        jurisdiction_id=JURISDICTION,
         provider_scene_id=ProviderSceneId(provider="sentinel-2", native_id="S2A_1"),
         bounding_box=BoundingBox(
             min_longitude=10.0, min_latitude=10.0, max_longitude=11.0, max_latitude=11.0
@@ -190,6 +192,7 @@ def test_reprocess_requires_non_blank_version() -> None:
 def test_processed_state_requires_pipeline_version_invariant() -> None:
     with pytest.raises(InvariantViolation):
         Scene(
+            jurisdiction_id=JURISDICTION,
             provider_scene_id=ProviderSceneId(provider="p", native_id="n"),
             bounding_box=BoundingBox(
                 min_longitude=0.0, min_latitude=0.0, max_longitude=1.0, max_latitude=1.0
@@ -215,6 +218,7 @@ def test_mark_processed_without_pipeline_version_raises_explicitly() -> None:
 def test_rejected_state_requires_reason_invariant() -> None:
     with pytest.raises(InvariantViolation):
         Scene(
+            jurisdiction_id=JURISDICTION,
             provider_scene_id=ProviderSceneId(provider="p", native_id="n"),
             bounding_box=BoundingBox(
                 min_longitude=0.0, min_latitude=0.0, max_longitude=1.0, max_latitude=1.0

@@ -24,9 +24,9 @@ class AreaOfInterest(AggregateRoot):
 
     name: str
     bounding_box: BoundingBox
+    jurisdiction_id: EntityId
     status: EntityStatus = EntityStatus.ACTIVE
     priority: Priority = Priority.MEDIUM
-    jurisdiction_id: EntityId | None = None
     revisit_cadence_days: int | None = None
 
     def _check_invariants(self) -> None:
@@ -42,8 +42,8 @@ class AreaOfInterest(AggregateRoot):
         *,
         name: str,
         bounding_box: BoundingBox,
+        jurisdiction_id: EntityId,
         priority: Priority = Priority.MEDIUM,
-        jurisdiction_id: EntityId | None = None,
         revisit_cadence_days: int | None = None,
         actor: EntityId | None = None,
     ) -> AreaOfInterest:

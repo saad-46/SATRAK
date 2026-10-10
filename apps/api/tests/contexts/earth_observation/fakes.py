@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Sequence
 from datetime import UTC, datetime
+from uuid import UUID
 
 from app.contexts.earth_observation.domain.aggregates.aoi import AreaOfInterest
 from app.contexts.earth_observation.domain.aggregates.scene import Scene
@@ -36,6 +37,7 @@ __all__ = [
 
 BBOX = BoundingBox(min_longitude=76.0, min_latitude=12.0, max_longitude=78.0, max_latitude=14.0)
 ACQUIRED_AT = datetime(2024, 6, 1, 5, 32, tzinfo=UTC)
+JURISDICTION = UUID("00000000-0000-4000-8000-0000000000a1")
 WINDOW = TimeRange(start=datetime(2024, 1, 1, tzinfo=UTC), end=datetime(2024, 12, 31, tzinfo=UTC))
 
 
@@ -63,11 +65,12 @@ def make_scene(native_id: str = "S2A_1", *, cloud_pct: float | None = 5.0) -> Sc
         provider_scene_id=candidate.provider_scene_id,
         bounding_box=candidate.bounding_box,
         acquisition=candidate.acquisition,
+        jurisdiction_id=JURISDICTION,
     )
 
 
 def make_aoi(name: str = "Ward 12", *, bbox: BoundingBox = BBOX) -> AreaOfInterest:
-    return AreaOfInterest.create(name=name, bounding_box=bbox)
+    return AreaOfInterest.create(name=name, bounding_box=bbox, jurisdiction_id=JURISDICTION)
 
 
 class FakeProvider:

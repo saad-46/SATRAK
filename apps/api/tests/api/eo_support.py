@@ -6,6 +6,7 @@ by pytest); these are the plain data builders test modules import.
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 
 from app.api.v1.endpoints.earth_observation.composition import EarthObservationApi
@@ -26,6 +27,10 @@ from app.contexts.earth_observation.domain.value_objects import (
 )
 from app.shared.value_objects.geo import BoundingBox
 
+# Jurisdictions: the default test user holds the EO permissions in HOME only.
+HOME = uuid.UUID("00000000-0000-4000-8000-0000000000a1")
+OTHER = uuid.UUID("00000000-0000-4000-8000-0000000000b2")
+
 # An AOI/scene footprint over southern India; a disjoint far box for negative filters.
 AOI_BBOX = BoundingBox(min_longitude=76.0, min_latitude=12.0, max_longitude=78.0, max_latitude=14.0)
 FAR_BBOX = BoundingBox(
@@ -41,11 +46,13 @@ def make_available_scene(
     bbox: BoundingBox = AOI_BBOX,
     cloud_pct: float = 7.5,
     pipeline_version: str = "1.0.0",
+    jurisdiction_id: uuid.UUID = HOME,
 ) -> Scene:
     """A fully-processed, AVAILABLE scene with bands, CRS, quality, and sun geometry."""
     scene = Scene.create(
         provider_scene_id=ProviderSceneId(provider=provider, native_id=native_id),
         bounding_box=bbox,
+        jurisdiction_id=jurisdiction_id,
         acquisition=AcquisitionMetadata(
             acquired_at=acquired_at or datetime(2024, 6, 1, 5, 32, tzinfo=UTC),
             sensor_type=SensorType.OPTICAL,
@@ -70,10 +77,16 @@ def make_available_scene(
     return scene
 
 
-def make_discovered_scene(native_id: str = "S2A_new", *, bbox: BoundingBox = AOI_BBOX) -> Scene:
+def make_discovered_scene(
+    native_id: str = "S2A_new",
+    *,
+    bbox: BoundingBox = AOI_BBOX,
+    jurisdiction_id: uuid.UUID = HOME,
+) -> Scene:
     scene = Scene.create(
         provider_scene_id=ProviderSceneId(provider="sentinel-2", native_id=native_id),
         bounding_box=bbox,
+        jurisdiction_id=jurisdiction_id,
         acquisition=AcquisitionMetadata(
             acquired_at=datetime(2024, 1, 15, tzinfo=UTC), sensor_type=SensorType.OPTICAL
         ),
@@ -82,8 +95,10 @@ def make_discovered_scene(native_id: str = "S2A_new", *, bbox: BoundingBox = AOI
     return scene
 
 
-def make_aoi(name: str = "Ward 12", *, bbox: BoundingBox = AOI_BBOX) -> AreaOfInterest:
-    aoi = AreaOfInterest.create(name=name, bounding_box=bbox)
+def make_aoi(
+    name: str = "Ward 12", *, bbox: BoundingBox = AOI_BBOX, jurisdiction_id: uuid.UUID = HOME
+) -> AreaOfInterest:
+    aoi = AreaOfInterest.create(name=name, bounding_box=bbox, jurisdiction_id=jurisdiction_id)
     aoi.pull_events()
     return aoi
 

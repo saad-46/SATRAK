@@ -81,6 +81,7 @@ class SceneDiscoveryService:
                 provider_scene_id=candidate.provider_scene_id,
                 bounding_box=candidate.bounding_box,
                 acquisition=candidate.acquisition,
+                jurisdiction_id=aoi.jurisdiction_id,
             )
             scene.link_aoi(aoi.id)
             await self._scenes.add(scene)

@@ -40,6 +40,9 @@ class SceneQuery:
     sensor_type: SensorType | None = None
     max_cloud_cover_pct: float | None = None
     aoi_id: EntityId | None = None
+    # Jurisdiction scope: ``None`` = unrestricted (trusted internal callers only); an empty
+    # set matches nothing (default deny); otherwise rows must belong to one of the ids.
+    jurisdiction_ids: frozenset[EntityId] | None = None
 
 
 @runtime_checkable

@@ -31,10 +31,12 @@ from app.shared.domain.enums import Priority
 from app.shared.domain.errors import ValueValidationError
 from app.shared.domain.identifiers import new_id
 from app.shared.value_objects.geo import BoundingBox
+from tests.contexts.earth_observation.fakes import JURISDICTION
 
 
 def _scene() -> Scene:
     return Scene.create(
+        jurisdiction_id=JURISDICTION,
         provider_scene_id=ProviderSceneId(provider="sentinel-2", native_id="S2A_1"),
         bounding_box=BoundingBox(
             min_longitude=76.0, min_latitude=12.0, max_longitude=78.0, max_latitude=14.0
@@ -107,6 +109,7 @@ def test_scene_round_trip_rejected_state() -> None:
 
 def test_scene_round_trip_sar_without_optical_fields() -> None:
     scene = Scene.create(
+        jurisdiction_id=JURISDICTION,
         provider_scene_id=ProviderSceneId(provider="sentinel-1", native_id="S1A_1"),
         bounding_box=BoundingBox(
             min_longitude=0.0, min_latitude=0.0, max_longitude=1.0, max_latitude=1.0

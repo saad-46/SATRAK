@@ -15,4 +15,5 @@ api_router.include_router(meta.router, prefix="/meta")
 # authenticated caller (see tests/api/test_route_inventory.py).
 _authenticated = [Depends(get_current_principal)]
 api_router.include_router(system.router, prefix="/system", dependencies=_authenticated)
-api_router.include_router(eo_router, dependencies=_authenticated)
+# EO routes authenticate through their own permission dependencies (jurisdiction-scoped).
+api_router.include_router(eo_router)

@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from typing import Protocol, runtime_checkable
 
 from app.contexts.earth_observation.domain.aggregates.scene import Scene
+from app.shared.domain.identifiers import EntityId
 from app.shared.value_objects.geo import BoundingBox
 from app.shared.value_objects.ranges import TimeRange
 
@@ -19,4 +20,10 @@ from app.shared.value_objects.ranges import TimeRange
 class TimelineProvider(Protocol):
     """Returns scenes intersecting an area within a time window, ordered by acquisition."""
 
-    async def timeline(self, *, area: BoundingBox, window: TimeRange) -> Sequence[Scene]: ...
+    async def timeline(
+        self,
+        *,
+        area: BoundingBox,
+        window: TimeRange,
+        jurisdiction_ids: frozenset[EntityId] | None = None,
+    ) -> Sequence[Scene]: ...

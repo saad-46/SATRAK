@@ -15,6 +15,7 @@ from collections.abc import Sequence
 from app.contexts.earth_observation.domain.aggregates.scene import Scene
 from app.contexts.earth_observation.domain.enums import SceneStatus
 from app.contexts.earth_observation.domain.ports.repositories import SceneQuery, SceneRepository
+from app.shared.domain.identifiers import EntityId
 from app.shared.value_objects.geo import BoundingBox
 from app.shared.value_objects.ranges import TimeRange
 
@@ -34,10 +35,21 @@ class RepositoryTimelineProvider:
         self._statuses = statuses
 
     async def timeline(
-        self, *, area: BoundingBox, window: TimeRange, limit: int = 100, offset: int = 0
+        self,
+        *,
+        area: BoundingBox,
+        window: TimeRange,
+        limit: int = 100,
+        offset: int = 0,
+        jurisdiction_ids: frozenset[EntityId] | None = None,
     ) -> Sequence[Scene]:
         return await self._scenes.search(
-            SceneQuery(area=area, window=window, statuses=self._statuses),
+            SceneQuery(
+                area=area,
+                window=window,
+                statuses=self._statuses,
+                jurisdiction_ids=jurisdiction_ids,
+            ),
             limit=limit,
             offset=offset,
         )

@@ -13,7 +13,12 @@ from fastapi import APIRouter, Query
 
 from app.api.pagination import PageParamsDep
 from app.api.schemas import PageResponse
-from app.api.v1.endpoints.earth_observation.deps import EoDep, optional_window, parse_bbox
+from app.api.v1.endpoints.earth_observation.deps import (
+    EoDep,
+    SceneReadAccess,
+    optional_window,
+    parse_bbox,
+)
 from app.api.v1.endpoints.earth_observation.schemas import (
     SceneDetail,
     SceneMetadataResponse,
@@ -31,6 +36,7 @@ router = APIRouter(tags=["earth-observation: scenes"])
 @router.get("", response_model=PageResponse[SceneSummary], summary="Search scenes")
 async def search_scenes(
     eo: EoDep,
+    access: SceneReadAccess,
     params: PageParamsDep,
     bbox: str | None = Query(None, description="minLon,minLat,maxLon,maxLat (WGS84)"),
     from_: datetime | None = Query(None, alias="from", description="Acquired at or after"),
@@ -47,6 +53,7 @@ async def search_scenes(
         provider=provider,
         sensor_type=sensor_type,
         max_cloud_cover_pct=max_cloud,
+        jurisdiction_ids=access.jurisdictions,
     )
     request = params.to_page_request()
     page = await eo.scene_query.search(query, request=request)
@@ -57,24 +64,31 @@ async def search_scenes(
 
 
 @router.get("/{scene_id}", response_model=SceneDetail, summary="Scene details")
-async def get_scene(scene_id: UUID, eo: EoDep) -> SceneDetail:
+async def get_scene(scene_id: UUID, eo: EoDep, access: SceneReadAccess) -> SceneDetail:
     scene = await eo.scenes.get(scene_id)
     if scene is None:
         raise NotFoundError(f"scene {scene_id} not found")
+    access.require(scene.jurisdiction_id)
     return SceneDetail.from_domain(scene)
 
 
 @router.get("/{scene_id}/status", response_model=SceneStatusResponse, summary="Scene status")
-async def get_scene_status(scene_id: UUID, eo: EoDep) -> SceneStatusResponse:
+async def get_scene_status(
+    scene_id: UUID, eo: EoDep, access: SceneReadAccess
+) -> SceneStatusResponse:
     scene = await eo.scenes.get(scene_id)
     if scene is None:
         raise NotFoundError(f"scene {scene_id} not found")
+    access.require(scene.jurisdiction_id)
     return SceneStatusResponse.from_domain(scene)
 
 
 @router.get("/{scene_id}/metadata", response_model=SceneMetadataResponse, summary="Scene metadata")
-async def get_scene_metadata(scene_id: UUID, eo: EoDep) -> SceneMetadataResponse:
+async def get_scene_metadata(
+    scene_id: UUID, eo: EoDep, access: SceneReadAccess
+) -> SceneMetadataResponse:
     scene = await eo.scenes.get(scene_id)
     if scene is None:
         raise NotFoundError(f"scene {scene_id} not found")
+    access.require(scene.jurisdiction_id)
     return SceneMetadataResponse.from_domain(scene)

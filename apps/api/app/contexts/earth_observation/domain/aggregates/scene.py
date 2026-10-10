@@ -62,6 +62,7 @@ class Scene(AggregateRoot):
     provider_scene_id: ProviderSceneId
     bounding_box: BoundingBox
     acquisition: AcquisitionMetadata
+    jurisdiction_id: EntityId
     status: SceneStatus = SceneStatus.DISCOVERED
     bands: BandSet | None = None
     crs: CrsRef | None = None
@@ -87,6 +88,7 @@ class Scene(AggregateRoot):
         provider_scene_id: ProviderSceneId,
         bounding_box: BoundingBox,
         acquisition: AcquisitionMetadata,
+        jurisdiction_id: EntityId,
         bands: BandSet | None = None,
         crs: CrsRef | None = None,
         actor: EntityId | None = None,
@@ -95,6 +97,7 @@ class Scene(AggregateRoot):
             provider_scene_id=provider_scene_id,
             bounding_box=bounding_box,
             acquisition=acquisition,
+            jurisdiction_id=jurisdiction_id,
             bands=bands,
             crs=crs,
             created_by=actor,

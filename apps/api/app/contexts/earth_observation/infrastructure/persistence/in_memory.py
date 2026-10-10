@@ -26,6 +26,8 @@ from app.shared.value_objects.ranges import TimeRange
 
 def _matches(scene: Scene, query: SceneQuery) -> bool:
     acq = scene.acquisition
+    if query.jurisdiction_ids is not None and scene.jurisdiction_id not in query.jurisdiction_ids:
+        return False
     if query.statuses and scene.status not in query.statuses:
         return False
     if query.provider is not None and scene.provider_scene_id.provider != query.provider:

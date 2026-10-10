@@ -68,3 +68,18 @@ async def test_aoi_list_active() -> None:
     listed = await repo.list_active()
     assert [a.name for a in listed] == ["Ward A"]
     assert active.status is EntityStatus.ACTIVE
+
+
+async def test_jurisdiction_scope_filters_and_default_denies() -> None:
+    repo = InMemorySceneRepository()
+    mine, theirs = new_id(), new_id()
+    for native_id, owner in (("A", mine), ("B", theirs)):
+        scene = make_scene(native_id)
+        scene.jurisdiction_id = owner
+        await repo.add(scene)
+
+    assert await repo.count_matching(SceneQuery()) == 2  # unrestricted (trusted internal use)
+    assert await repo.count_matching(SceneQuery(jurisdiction_ids=frozenset({mine}))) == 1
+    assert await repo.count_matching(SceneQuery(jurisdiction_ids=frozenset({mine, theirs}))) == 2
+    assert await repo.count_matching(SceneQuery(jurisdiction_ids=frozenset())) == 0
+    assert await repo.count_matching(SceneQuery(jurisdiction_ids=frozenset({new_id()}))) == 0

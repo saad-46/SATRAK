@@ -14,7 +14,12 @@ from fastapi import APIRouter, Query
 
 from app.api.pagination import PageParamsDep
 from app.api.schemas import PageResponse
-from app.api.v1.endpoints.earth_observation.deps import EoDep, default_window
+from app.api.v1.endpoints.earth_observation.deps import (
+    AoiReadAccess,
+    EoDep,
+    SceneReadAccess,
+    default_window,
+)
 from app.api.v1.endpoints.earth_observation.schemas import (
     AoiDetail,
     AoiSummary,
@@ -33,6 +38,7 @@ _LIST_CAP = 10_000
 @router.get("", response_model=PageResponse[AoiSummary], summary="Search AOIs")
 async def list_aois(
     eo: EoDep,
+    access: AoiReadAccess,
     params: PageParamsDep,
     active_only: bool = Query(True, description="Only ACTIVE AOIs"),
 ) -> PageResponse[AoiSummary]:
@@ -40,6 +46,7 @@ async def list_aois(
         items = list(await eo.aois.list_active(limit=_LIST_CAP, offset=0))
     else:
         items = list(await eo.aois.list(limit=_LIST_CAP, offset=0))
+    items = [aoi for aoi in items if access.allows(aoi.jurisdiction_id)]
     request = params.to_page_request()
     window = items[request.offset : request.offset + request.limit]
     page = Page.create([AoiSummary.from_domain(aoi) for aoi in window], len(items), request)
@@ -47,10 +54,11 @@ async def list_aois(
 
 
 @router.get("/{aoi_id}", response_model=AoiDetail, summary="AOI details")
-async def get_aoi(aoi_id: UUID, eo: EoDep) -> AoiDetail:
+async def get_aoi(aoi_id: UUID, eo: EoDep, access: AoiReadAccess) -> AoiDetail:
     aoi = await eo.aois.get(aoi_id)
     if aoi is None:
         raise NotFoundError(f"AOI {aoi_id} not found")
+    access.require(aoi.jurisdiction_id)
     return AoiDetail.from_domain(aoi)
 
 
@@ -58,6 +66,8 @@ async def get_aoi(aoi_id: UUID, eo: EoDep) -> AoiDetail:
 async def get_aoi_timeline(
     aoi_id: UUID,
     eo: EoDep,
+    access: AoiReadAccess,
+    scene_access: SceneReadAccess,
     from_: datetime | None = Query(None, alias="from"),
     to: datetime | None = Query(None),
     limit: int = Query(100, ge=1, le=500),
@@ -65,8 +75,13 @@ async def get_aoi_timeline(
     aoi = await eo.aois.get(aoi_id)
     if aoi is None:
         raise NotFoundError(f"AOI {aoi_id} not found")
+    access.require(aoi.jurisdiction_id)
+    scene_access.require(aoi.jurisdiction_id)
     scenes = await eo.timeline.timeline(
-        area=aoi.bounding_box, window=default_window(from_, to), limit=limit
+        area=aoi.bounding_box,
+        window=default_window(from_, to),
+        limit=limit,
+        jurisdiction_ids=frozenset({aoi.jurisdiction_id}),
     )
     return TimelineResponse(
         area=BoundingBoxSchema.from_domain(aoi.bounding_box),

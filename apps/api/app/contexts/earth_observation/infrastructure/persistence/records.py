@@ -65,6 +65,7 @@ class SceneRecord:
     sensor_type: str
     acquired_at: datetime
     bounding_box: BoundingBoxRecord
+    jurisdiction_id: UUID
     audit: AuditFields
     cloud_cover_pct: float | None = None
     sun_azimuth_deg: float | None = None
@@ -88,8 +89,8 @@ class AoiRecord:
     status: str
     priority: str
     bounding_box: BoundingBoxRecord
+    jurisdiction_id: UUID
     audit: AuditFields
-    jurisdiction_id: UUID | None = None
     revisit_cadence_days: int | None = None
 
 

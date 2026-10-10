@@ -9,6 +9,7 @@ from app.shared.domain.enums import EntityStatus, Priority
 from app.shared.domain.errors import InvariantViolation, ValueValidationError
 from app.shared.domain.events import EntityCreated, EntityUpdated
 from app.shared.value_objects.geo import BoundingBox, Coordinates
+from tests.contexts.earth_observation.fakes import JURISDICTION
 
 
 def _bbox(minlon: float, minlat: float, maxlon: float, maxlat: float) -> BoundingBox:
@@ -18,7 +19,11 @@ def _bbox(minlon: float, minlat: float, maxlon: float, maxlat: float) -> Boundin
 
 
 def _make_aoi() -> AreaOfInterest:
-    return AreaOfInterest.create(name="Ward 12", bounding_box=_bbox(10.0, 10.0, 12.0, 12.0))
+    return AreaOfInterest.create(
+        name="Ward 12",
+        bounding_box=_bbox(10.0, 10.0, 12.0, 12.0),
+        jurisdiction_id=JURISDICTION,
+    )
 
 
 def test_create_defaults_and_event() -> None:
@@ -33,7 +38,9 @@ def test_create_defaults_and_event() -> None:
 
 def test_create_requires_name() -> None:
     with pytest.raises(InvariantViolation):
-        AreaOfInterest.create(name="  ", bounding_box=_bbox(0.0, 0.0, 1.0, 1.0))
+        AreaOfInterest.create(
+            name="  ", bounding_box=_bbox(0.0, 0.0, 1.0, 1.0), jurisdiction_id=JURISDICTION
+        )
 
 
 def test_mutations_emit_updated_events() -> None:

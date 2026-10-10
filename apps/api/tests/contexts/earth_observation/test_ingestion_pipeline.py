@@ -78,6 +78,7 @@ async def test_discovery_registers_filters_and_dedups() -> None:
     assert result.duplicates == 1
     stored = await scenes.get(result.scene_ids[0])
     assert stored is not None
+    assert stored.jurisdiction_id == aoi.jurisdiction_id  # scenes inherit the AOI's tenant
     assert stored.status is SceneStatus.DISCOVERED
     assert aoi.id in stored.aoi_ids
     assert sum(isinstance(e, ImageDiscovered) for e in published) == 1

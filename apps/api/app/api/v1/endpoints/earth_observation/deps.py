@@ -7,7 +7,9 @@ from typing import Annotated, cast
 
 from fastapi import Depends, Request
 
+from app.api.deps import require_permission
 from app.api.v1.endpoints.earth_observation.composition import EarthObservationApi
+from app.core.authz import AccessContext
 from app.shared.domain.clock import utcnow
 from app.shared.domain.errors import ValueValidationError
 from app.shared.value_objects.geo import BoundingBox
@@ -21,6 +23,12 @@ def get_eo(request: Request) -> EarthObservationApi:
 
 
 EoDep = Annotated[EarthObservationApi, Depends(get_eo)]
+
+# Permission-checked access contexts: each resolves to the jurisdictions in which the caller
+# holds that permission (403 when nowhere). Module-level so FastAPI caches one check per request.
+SceneReadAccess = Annotated[AccessContext, Depends(require_permission("eo:scene:read"))]
+AoiReadAccess = Annotated[AccessContext, Depends(require_permission("eo:aoi:read"))]
+TileReadAccess = Annotated[AccessContext, Depends(require_permission("eo:tile:read"))]
 
 
 def parse_bbox(bbox: str) -> BoundingBox:

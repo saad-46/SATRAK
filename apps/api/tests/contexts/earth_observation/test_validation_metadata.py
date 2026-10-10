@@ -33,7 +33,7 @@ from app.shared.domain.events import DomainEvent
 from app.shared.events.bus import InMemoryEventBus
 from app.shared.persistence.unit_of_work import InMemoryUnitOfWork
 from app.shared.value_objects.geo import BoundingBox
-from tests.contexts.earth_observation.fakes import InMemorySceneRepository, make_scene
+from tests.contexts.earth_observation.fakes import JURISDICTION, InMemorySceneRepository, make_scene
 
 _SHA = "ab" * 32
 
@@ -109,6 +109,7 @@ def test_checksum_rules() -> None:
 
 def test_sar_scene_valid_without_cloud() -> None:
     scene = Scene.create(
+        jurisdiction_id=JURISDICTION,
         provider_scene_id=ProviderSceneId(provider="sentinel-1", native_id="S1A_1"),
         bounding_box=BoundingBox(
             min_longitude=0.0, min_latitude=0.0, max_longitude=1.0, max_latitude=1.0
@@ -220,6 +221,7 @@ def test_passing_band_crs_and_resolution_branches() -> None:
 
 def test_degenerate_bounding_box_rule() -> None:
     scene = Scene.create(
+        jurisdiction_id=JURISDICTION,
         provider_scene_id=ProviderSceneId(provider="p", native_id="line"),
         bounding_box=BoundingBox(
             min_longitude=10.0, min_latitude=10.0, max_longitude=10.0, max_latitude=11.0

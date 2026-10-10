@@ -53,6 +53,34 @@ def test_migrations_round_trip_and_have_no_drift(migrated_database: str) -> None
         assert result.returncode == 0, (step, result.stderr[-500:])
 
 
+async def test_migrations_preserve_data_and_round_trip_to_base(migrated_database: str) -> None:
+    """Data written at 0003 survives the RLS migration, in both directions; base is reachable."""
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    assert run_alembic("downgrade", "0003").returncode == 0
+    engine = create_async_engine(migrated_database)
+    try:
+        async with engine.begin() as c:
+            nat = await _jurisdiction(c, "IN-mig", "national")
+            await c.execute(
+                text("INSERT INTO organization (jurisdiction_id, name) VALUES (:j, 'kept')"),
+                {"j": nat},
+            )
+        for step in (("upgrade", "head"), ("downgrade", "0003")):
+            result = run_alembic(*step)
+            assert result.returncode == 0, (step, result.stderr[-500:])
+        async with engine.begin() as c:  # the owner is not bound by RLS at 0003 (no policies)
+            count = (
+                await c.execute(text("SELECT count(*) FROM organization WHERE name = 'kept'"))
+            ).scalar_one()
+            assert count == 1
+        assert run_alembic("downgrade", "base").returncode == 0
+        assert run_alembic("upgrade", "head").returncode == 0
+        assert run_alembic("check").returncode == 0
+    finally:
+        await engine.dispose()
+
+
 # --- Jurisdiction hierarchy --------------------------------------------------------------------
 async def test_hierarchy_accepts_a_valid_chain(conn: AsyncConnection) -> None:
     nat = await _jurisdiction(conn, "IN", "national")

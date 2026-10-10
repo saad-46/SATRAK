@@ -226,6 +226,8 @@ jobs:
           CREATE DATABASE satrak_test OWNER satrak_owner;
           SQL
           psql -v ON_ERROR_STOP=1 -d satrak_test -c "CREATE EXTENSION IF NOT EXISTS postgis"
+          # Migration 0001 also asks for postgis_topology, which only a superuser may create.
+          psql -v ON_ERROR_STOP=1 -d satrak_test -c "CREATE EXTENSION IF NOT EXISTS postgis_topology"
       - name: Pytest with database and Redis (+ coverage gate)
         run: pytest --cov-report=xml
       - name: Fail if tests were skipped for a missing database, roles or Redis

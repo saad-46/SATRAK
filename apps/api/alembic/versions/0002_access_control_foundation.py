@@ -95,16 +95,10 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id", name="pk_jurisdiction"),
         sa.UniqueConstraint("code", name="uq_jurisdiction_code"),
-        sa.CheckConstraint(f"level IN {_LEVELS}", name="ck_jurisdiction_level_valid"),
-        sa.CheckConstraint(
-            "parent_id IS NULL OR parent_id <> id", name="ck_jurisdiction_not_own_parent"
-        ),
-        sa.CheckConstraint(
-            "(level = 'national') = (parent_id IS NULL)", name="ck_jurisdiction_root_is_national"
-        ),
-        sa.CheckConstraint(
-            "length(btrim(code)) > 0 AND length(btrim(name)) > 0", name="ck_jurisdiction_named"
-        ),
+        sa.CheckConstraint(f"level IN {_LEVELS}", name="level_valid"),
+        sa.CheckConstraint("parent_id IS NULL OR parent_id <> id", name="not_own_parent"),
+        sa.CheckConstraint("(level = 'national') = (parent_id IS NULL)", name="root_is_national"),
+        sa.CheckConstraint("length(btrim(code)) > 0 AND length(btrim(name)) > 0", name="named"),
     )
     op.create_index("ix_jurisdiction_parent_id", "jurisdiction", ["parent_id"])
     op.create_index(
@@ -171,7 +165,7 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id", name="pk_organization"),
         sa.UniqueConstraint("jurisdiction_id", "name", name="uq_organization_jurisdiction_name"),
-        sa.CheckConstraint("length(btrim(name)) > 0", name="ck_organization_named"),
+        sa.CheckConstraint("length(btrim(name)) > 0", name="named"),
     )
     op.create_index("ix_organization_jurisdiction_id", "organization", ["jurisdiction_id"])
 
@@ -198,7 +192,7 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id", name="pk_user_account"),
         sa.UniqueConstraint("issuer", "subject", name="uq_user_account_issuer_subject"),
-        sa.CheckConstraint(f"status IN {_STATUSES}", name="ck_user_account_status_valid"),
+        sa.CheckConstraint(f"status IN {_STATUSES}", name="status_valid"),
     )
 
     op.create_table(
@@ -210,9 +204,7 @@ def upgrade() -> None:
         sa.Column("description", sa.Text(), nullable=True),
         sa.PrimaryKeyConstraint("id", name="pk_permission"),
         sa.UniqueConstraint("code", name="uq_permission_code"),
-        sa.CheckConstraint(
-            "code ~ '^[a-z][a-z0-9_]*(:[a-z][a-z0-9_]*)+$'", name="ck_permission_code_format"
-        ),
+        sa.CheckConstraint("code ~ '^[a-z][a-z0-9_]*(:[a-z][a-z0-9_]*)+$'", name="code_format"),
     )
 
     op.create_table(
@@ -227,7 +219,7 @@ def upgrade() -> None:
         sa.Column("is_system", sa.Boolean(), server_default=sa.text("false"), nullable=False),
         sa.PrimaryKeyConstraint("id", name="pk_role"),
         sa.UniqueConstraint("code", name="uq_role_code"),
-        sa.CheckConstraint("length(btrim(code)) > 0", name="ck_role_coded"),
+        sa.CheckConstraint("length(btrim(code)) > 0", name="coded"),
     )
 
     op.create_table(
@@ -287,14 +279,12 @@ def upgrade() -> None:
             ondelete="RESTRICT",
         ),
         sa.PrimaryKeyConstraint("id", name="pk_role_assignment"),
-        sa.CheckConstraint(f"kind IN {_KINDS}", name="ck_role_assignment_kind_valid"),
-        sa.CheckConstraint(
-            "valid_to IS NULL OR valid_to > valid_from", name="ck_role_assignment_window_ordered"
-        ),
+        sa.CheckConstraint(f"kind IN {_KINDS}", name="kind_valid"),
+        sa.CheckConstraint("valid_to IS NULL OR valid_to > valid_from", name="window_ordered"),
         sa.CheckConstraint(
             "kind <> 'cross_jurisdiction_grant' OR "
             "(valid_to IS NOT NULL AND reason IS NOT NULL AND length(btrim(reason)) > 0)",
-            name="ck_role_assignment_grant_expires_with_reason",
+            name="grant_expires_with_reason",
         ),
     )
     op.create_index(

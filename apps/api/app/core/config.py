@@ -293,6 +293,8 @@ class DatabaseUrlSettings(BaseSettings):
     )
 
     database_url: PostgresDsn | None = None
+    # Migrations run as the schema owner (satrak_migrator), never as the application role.
+    migration_database_url: PostgresDsn | None = None
 
 
 @lru_cache

@@ -160,9 +160,13 @@ class InMemoryAccessStore:
         if user_id in self.users:
             self.revoked_before[user_id] = max(self.revoked_before.get(user_id, at), at)
 
-    async def assignment_jurisdictions(self, *, user_id: uuid.UUID) -> frozenset[uuid.UUID]:
+    async def assignment_jurisdictions(
+        self, *, user_id: uuid.UUID, within: frozenset[uuid.UUID]
+    ) -> frozenset[uuid.UUID]:
         return frozenset(
-            a.jurisdiction for a in self.assignments if a.user == user_id and not a.revoked
+            a.jurisdiction
+            for a in self.assignments
+            if a.user == user_id and not a.revoked and a.jurisdiction in within
         )
 
 
@@ -208,15 +212,20 @@ class MemoryWorld:
 
 
 class SqlWorld:
-    """Writes real rows (committed) through an owner connection; reads via ``SqlAccessStore``."""
+    """Writes real rows (committed) as the maintenance role; reads via ``SqlAccessStore``."""
 
-    def __init__(self, engine: AsyncEngine) -> None:
-        self._engine = engine
-        maker = async_sessionmaker(engine, expire_on_commit=False)
+    def __init__(
+        self, admin_engine: AsyncEngine, app_engine: AsyncEngine, owner_engine: AsyncEngine
+    ) -> None:
+        # Fixtures are written as the maintenance role (BYPASSRLS); the store under test reads
+        # as the application role, so row-level security is exercised by every scenario.
+        self._engine = admin_engine
+        self._owner = owner_engine  # TRUNCATE is not covered by RLS and not granted to roles
+        maker = async_sessionmaker(app_engine, expire_on_commit=False)
         self.store = SqlAccessStore(lambda: maker)
 
     async def reset(self) -> None:
-        async with self._engine.begin() as conn:
+        async with self._owner.begin() as conn:
             await conn.execute(
                 text(
                     "TRUNCATE role_assignment, role_permission, role, permission, user_account, "

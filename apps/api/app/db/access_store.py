@@ -10,6 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.authz import AccessUser, FirstSeen, SessionState
+from app.db.rls import apply_context
 
 # Descendants-or-self of every jurisdiction where the user holds a currently valid assignment
 # whose role carries the permission. Disabled users, revoked/expired/not-yet-valid assignments,
@@ -111,7 +112,10 @@ class SqlAccessStore:
     async def permitted_jurisdictions(
         self, *, user_id: uuid.UUID, permission: str, at: datetime
     ) -> frozenset[uuid.UUID]:
-        async with self._sessionmaker()() as session:
+        async with self._sessionmaker()() as session, session.begin():
+            # Bootstrap: a user may read their own assignments before any jurisdiction
+            # context exists (policy ``own_assignments_read``); nothing else is visible.
+            await apply_context(session, user_id=user_id, jurisdiction_ids=())
             rows = await session.execute(
                 _PERMITTED, {"user_id": user_id, "permission": permission, "at": at}
             )
@@ -176,7 +180,12 @@ class SqlAccessStore:
                 _REVOKE_USER, {"user_id": user_id, "at": at, "revoked_by": revoked_by}
             )
 
-    async def assignment_jurisdictions(self, *, user_id: uuid.UUID) -> frozenset[uuid.UUID]:
-        async with self._sessionmaker()() as session:
+    async def assignment_jurisdictions(
+        self, *, user_id: uuid.UUID, within: frozenset[uuid.UUID]
+    ) -> frozenset[uuid.UUID]:
+        # Row-level security limits the visible assignments to ``within``: the database, not
+        # just this query, guarantees nothing outside the caller's scope is revealed.
+        async with self._sessionmaker()() as session, session.begin():
+            await apply_context(session, user_id=None, jurisdiction_ids=within)
             rows = await session.execute(_ASSIGNMENT_JURISDICTIONS, {"user_id": user_id})
             return frozenset(row.jurisdiction_id for row in rows)

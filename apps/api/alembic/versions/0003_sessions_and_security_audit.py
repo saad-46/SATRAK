@@ -79,8 +79,8 @@ def upgrade() -> None:
         ),
         sa.Column("prev_hash", sa.String(64), nullable=False),
         sa.Column("hash", sa.String(64), nullable=False),
-        sa.CheckConstraint(f"event_type IN {_EVENT_TYPES}", name="ck_audit_event_event_type_valid"),
-        sa.CheckConstraint(f"outcome IN {_OUTCOMES}", name="ck_audit_event_outcome_valid"),
+        sa.CheckConstraint(f"event_type IN {_EVENT_TYPES}", name="event_type_valid"),
+        sa.CheckConstraint(f"outcome IN {_OUTCOMES}", name="outcome_valid"),
         sa.UniqueConstraint("id", name="uq_audit_event_id"),
         sa.UniqueConstraint("hash", name="uq_audit_event_hash"),
     )

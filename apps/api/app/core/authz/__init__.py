@@ -132,6 +132,8 @@ class AccessStore(Protocol):
         """Reject every token for the user issued at or before ``at`` (``revoked_before``)."""
         ...
 
-    async def assignment_jurisdictions(self, *, user_id: uuid.UUID) -> frozenset[uuid.UUID]:
-        """Jurisdictions of all the user's non-revoked assignments (administrative scope)."""
+    async def assignment_jurisdictions(
+        self, *, user_id: uuid.UUID, within: frozenset[uuid.UUID]
+    ) -> frozenset[uuid.UUID]:
+        """Jurisdictions, among ``within``, of the user's non-revoked assignments."""
         ...

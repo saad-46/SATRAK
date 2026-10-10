@@ -58,3 +58,23 @@ mechanism, not an edit of the PRD. A PRD change request should reference this AD
 - Open items: cross-tenant analytics (PRD L3969 vs AP1), the audit store's tenant scope, and
   tenant-less tables in the PRD (`model_version`, `evidence_package`, `physical_asset`) need explicit
   classification as global or tenant-owned.
+
+## Implementation notes (access-control sprint, Story 7)
+
+- **Mechanism.** Migration `0004` adds `app_permitted_jurisdictions()` and `app_current_user_id()`
+  (read the transaction-local settings `app.jurisdiction_ids` / `app.user_id`). `organization` and
+  `role_assignment` have RLS enabled and forced with a `tenant_isolation` policy (`USING` and
+  `WITH CHECK`). `role_assignment` also has `own_assignments_read` (SELECT only), so a user's
+  permissions can be resolved before any jurisdiction context exists. No setting means no rows.
+- **Roles** (`infra/db/roles.sql`, cluster-level, created by a DBA, never by migrations):
+  `satrak_migrator` (owner, runs Alembic via `migration_database_url`), `satrak_app` (API; not owner,
+  no DDL, no `BYPASSRLS`, no UPDATE/DELETE on `audit_event`), `satrak_admin` (`BYPASSRLS`, break-glass).
+- **Context helpers** in `app/db/rls.py`: `tenant_session` (request), `worker_session` (requires a
+  non-empty explicit scope). `app/db/privileged.py::privileged_session` writes a `privileged_db.used`
+  audit event first and fails closed if that cannot be recorded; an import-linter contract keeps the
+  web layer from importing it.
+- **Global (RLS-exempt) tables** are listed with reasons in `tests/db/test_row_level_security.py`;
+  a test fails when a new table is not classified, or a table with `jurisdiction_id` is not protected.
+- **Test finding:** pooled connections must not lose a `SET ROLE` on rollback-on-return; the test
+  helper commits it. Production uses a login role, so this affects test infrastructure only.
+- Still open: classification of the PRD's tenant-less tables and cross-tenant analytics.

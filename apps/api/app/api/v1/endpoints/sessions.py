@@ -117,12 +117,12 @@ async def logout(
 async def _require_scope(ctx: AccessContext, store: AccessStoreDep, target: uuid.UUID) -> None:
     """The caller's permission must cover a jurisdiction the target is assigned to."""
     try:
-        theirs = await store.assignment_jurisdictions(user_id=target)
+        theirs = await store.assignment_jurisdictions(user_id=target, within=ctx.jurisdictions)
     except Exception as exc:
         raise ServiceUnavailableError(
             "Authorization is temporarily unavailable.", code="authz_unavailable"
         ) from exc
-    if not (theirs & ctx.jurisdictions):
+    if not theirs:
         raise ctx.denial()
 
 

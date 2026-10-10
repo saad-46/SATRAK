@@ -12,6 +12,7 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from tests.authz_support import DAY, ISSUER, NOW, MemoryWorld, SqlWorld, World
+from tests.db.conftest import ADMIN_ROLE, APP_ROLE, role_engine
 
 PERM = "eo:scene:read"
 
@@ -25,14 +26,17 @@ async def world(request: pytest.FixtureRequest) -> AsyncIterator[World]:
     if url is None:
         pytest.skip("SATRAK_TEST_DATABASE_URL is not set")
     request.getfixturevalue("migrated_database")
-    engine = create_async_engine(url)
-    sql = SqlWorld(engine)
+    admin, app = role_engine(url, ADMIN_ROLE), role_engine(url, APP_ROLE)
+    owner = create_async_engine(url)
+    sql = SqlWorld(admin, app, owner)
     await sql.reset()
     try:
         yield sql
     finally:
         await sql.reset()
-        await engine.dispose()
+        await admin.dispose()
+        await app.dispose()
+        await owner.dispose()
 
 
 async def _tree(world: World) -> dict[str, uuid.UUID]:
@@ -249,5 +253,11 @@ async def test_assignment_jurisdictions_lists_only_live_assignments(world: World
     user, role = await world.user("assigned"), await world.role("viewer", [PERM])
     await world.assign(user, role, t["c1"])
     await world.assign(user, role, t["c2"], revoked=True)
-    assert await world.store.assignment_jurisdictions(user_id=user) == {t["c1"]}
-    assert await world.store.assignment_jurisdictions(user_id=uuid.uuid4()) == frozenset()
+    everything = frozenset(t.values())
+    assigned = await world.store.assignment_jurisdictions(user_id=user, within=everything)
+    assert assigned == {t["c1"]}
+    # Only assignments inside the caller's scope are visible to it.
+    elsewhere = frozenset({t["c3"]})
+    assert await world.store.assignment_jurisdictions(user_id=user, within=elsewhere) == frozenset()
+    unknown = await world.store.assignment_jurisdictions(user_id=uuid.uuid4(), within=everything)
+    assert unknown == frozenset()

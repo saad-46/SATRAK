@@ -26,7 +26,10 @@ USER_LOGGED_IN: Final = "user.logged_in"
 USER_LOGIN_FAILED: Final = "user.login_failed"
 ACCESS_DENIED: Final = "access.denied"
 SESSION_REVOKED: Final = "session.revoked"
-EVENT_TYPES: Final = frozenset({USER_LOGGED_IN, USER_LOGIN_FAILED, ACCESS_DENIED, SESSION_REVOKED})
+PRIVILEGED_DB_USED: Final = "privileged_db.used"
+EVENT_TYPES: Final = frozenset(
+    {USER_LOGGED_IN, USER_LOGIN_FAILED, ACCESS_DENIED, SESSION_REVOKED, PRIVILEGED_DB_USED}
+)
 OUTCOMES: Final = frozenset({"success", "failure", "denied"})
 
 _FORBIDDEN_KEY_PARTS = ("token", "authorization", "password", "secret", "credential", "cookie")

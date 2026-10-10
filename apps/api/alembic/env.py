@@ -27,7 +27,8 @@ if config.config_file_name is not None:
 
 # Inject the runtime database URL. Only the URL is read (not the full application
 # settings), so migrations run without any authentication configuration.
-database_url = DatabaseUrlSettings().database_url
+_url_settings = DatabaseUrlSettings()
+database_url = _url_settings.migration_database_url or _url_settings.database_url
 if database_url is not None:
     config.set_main_option("sqlalchemy.url", str(database_url))
 

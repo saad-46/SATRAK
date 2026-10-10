@@ -128,6 +128,13 @@ type = "forbidden"
 source_modules = ["app.contexts"]
 forbidden_modules = ["app.api", "app.db", "app.core", "app.main"]
 
+# The bypass-capable (BYPASSRLS) database role is for audited maintenance only (ADR-0011).
+[[tool.importlinter.contracts]]
+name = "The web layer never uses privileged database access"
+type = "forbidden"
+source_modules = ["app.api", "app.contexts", "app.main"]
+forbidden_modules = ["app.db.privileged"]
+
 [[tool.importlinter.contracts]]
 name = "Core infrastructure does not depend on API or contexts"
 type = "forbidden"

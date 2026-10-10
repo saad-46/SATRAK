@@ -54,7 +54,7 @@ python -m venv .venv
 pip install --require-hashes -r requirements-dev.lock
 pip install --no-deps -e .
 cp .env.example .env
-uvicorn app.main:app --reload
+uvicorn app.main:create_app --factory --reload
 ```
 
 - Docs: http://localhost:8000/docs

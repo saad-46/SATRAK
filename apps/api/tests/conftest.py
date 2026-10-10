@@ -14,7 +14,7 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
-from app.core.config import Environment, Settings
+from app.core.config import Settings
 from app.main import create_app
 from app.testing.fakes import (
     FixedClock,
@@ -23,18 +23,34 @@ from app.testing.fakes import (
     InMemoryStorageProvider,
     InMemoryUnitOfWork,
 )
+from tests.auth_support import TestIdp, make_settings
 
 
 @pytest.fixture(scope="session")
 def settings() -> Settings:
-    return Settings(environment=Environment.TEST, log_format="console")
+    return make_settings()
+
+
+@pytest.fixture(scope="session")
+def idp() -> TestIdp:
+    """A fake OIDC issuer (keys generated once per run). Tests that mutate it build their own."""
+    return TestIdp()
 
 
 @pytest_asyncio.fixture
-async def client(settings: Settings) -> AsyncIterator[AsyncClient]:
-    app = create_app(settings)
+async def anonymous_client(settings: Settings, idp: TestIdp) -> AsyncIterator[AsyncClient]:
+    app = create_app(settings, auth=idp.runtime(settings.auth))
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
+
+
+@pytest_asyncio.fixture
+async def client(settings: Settings, idp: TestIdp) -> AsyncIterator[AsyncClient]:
+    """An authenticated client (valid bearer token by default)."""
+    app = create_app(settings, auth=idp.runtime(settings.auth))
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test", headers=idp.bearer()) as ac:
         yield ac
 
 

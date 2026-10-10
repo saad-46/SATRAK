@@ -28,11 +28,14 @@ class AppError(Exception):
         code: str | None = None,
         status_code: int | None = None,
         details: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         self.message = message or self.message
         self.code = code or self.code
         self.status_code = status_code or self.status_code
         self.details = details or {}
+        # Extra response headers (e.g. ``WWW-Authenticate`` on 401, ``Retry-After`` on 429).
+        self.headers = headers or {}
         super().__init__(self.message)
 
 

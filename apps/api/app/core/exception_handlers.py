@@ -32,11 +32,14 @@ def _title_from_code(code: str) -> str:
     return code.replace("_", " ").title()
 
 
-def _problem_response(problem: ProblemDetail) -> JSONResponse:
+def _problem_response(
+    problem: ProblemDetail, headers: dict[str, str] | None = None
+) -> JSONResponse:
     return JSONResponse(
         status_code=problem.status,
         content=problem.model_dump(exclude_none=True),
         media_type=PROBLEM_CONTENT_TYPE,
+        headers=headers,
     )
 
 
@@ -52,7 +55,8 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
             code=exc.code,
             request_id=_current_request_id(),
             errors=[exc.details] if exc.details else None,
-        )
+        ),
+        headers=exc.headers or None,
     )
 
 

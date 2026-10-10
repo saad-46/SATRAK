@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.endpoints.earth_observation.composition import build_earth_observation_api
 from app.api.v1.router import api_router
+from app.core.auth import AuthRuntime, build_auth_runtime
 from app.core.config import Settings, get_settings
 from app.core.exception_handlers import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
@@ -29,12 +30,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup/shutdown hooks."""
     logger = get_logger("api.lifecycle")
     logger.info("api_startup", environment=str(app.state.settings.environment))
+    if not app.state.settings.auth.enabled:
+        logger.warning("authentication_disabled", environment=str(app.state.settings.environment))
     yield
+    if app.state.auth is not None:
+        await app.state.auth.aclose()
     await dispose_engine()
     logger.info("api_shutdown")
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, *, auth: AuthRuntime | None = None) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings)
 
@@ -47,6 +52,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = settings
+    # ``auth`` is injectable so tests supply a runtime backed by a fake key set.
+    app.state.auth = auth if auth is not None else build_auth_runtime(settings.auth)
     # Earth Observation API dependencies (in-memory backend today; swapped for the
     # SQLAlchemy/PostGIS adapter without endpoint changes when persistence lands).
     app.state.earth_observation = build_earth_observation_api()
@@ -79,6 +86,3 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.openapi = build_custom_openapi(app, settings)  # type: ignore[method-assign]
 
     return app
-
-
-app = create_app()

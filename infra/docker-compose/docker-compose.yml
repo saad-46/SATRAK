@@ -48,13 +48,26 @@ services:
       context: ../../apps/api
       dockerfile: Dockerfile
     # Live-reload the container against mounted source for local development.
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    command:
+      [
+        "uvicorn",
+        "app.main:create_app",
+        "--factory",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--reload",
+      ]
     environment:
       SATRAK_API_ENVIRONMENT: development
       SATRAK_API_LOG_FORMAT: console
       SATRAK_API_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-satrak}:${POSTGRES_PASSWORD:-satrak_dev_password}@postgis:5432/${POSTGRES_DB:-satrak}
       SATRAK_API_REDIS_URL: redis://redis:6379/0
       SATRAK_API_CORS_ORIGINS: http://localhost:3000
+      # Local development only: no identity provider is configured here. Authentication
+      # cannot be disabled in staging/production (enforced by the settings validator).
+      SATRAK_API_AUTH_ENABLED: "false"
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:

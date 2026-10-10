@@ -21,9 +21,10 @@ WORKDIR /app
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md requirements.lock ./
+RUN pip install --upgrade pip && pip install --require-hashes -r requirements.lock
 COPY app ./app
-RUN pip install --upgrade pip && pip install .
+RUN pip install --no-deps .
 
 # --- Runtime -----------------------------------------------------------------
 FROM python:3.12-slim AS runtime

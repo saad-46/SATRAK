@@ -28,7 +28,7 @@ install-js: ## Install JS/TS workspace dependencies
 install-py: ## Create the API virtualenv and install Python deps
 	cd $(API_DIR) && python -m venv .venv && \
 		. .venv/Scripts/activate 2>/dev/null || . .venv/bin/activate; \
-		pip install -U pip && pip install -e ".[dev]"
+		pip install -U pip && pip install --require-hashes -r requirements-dev.lock && pip install --no-deps -e .
 
 # --- Local dev ---------------------------------------------------------------
 .PHONY: dev

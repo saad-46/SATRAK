@@ -61,11 +61,18 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: apps/api/pyproject.toml
+          cache-dependency-path: apps/api/requirements-dev.lock
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install --require-hashes -r requirements-dev.lock
+          pip install --no-deps -e .
+      - name: Dependency lock is current
+        run: |
+          pip install pip-tools==7.6.2
+          pip-compile --generate-hashes --quiet --strip-extras --output-file=requirements.lock pyproject.toml
+          pip-compile --extra dev --generate-hashes --quiet --strip-extras --output-file=requirements-dev.lock pyproject.toml
+          git diff --exit-code -- requirements.lock requirements-dev.lock
       - name: Ruff (lint)
         run: ruff check .
       - name: Ruff (format check)
@@ -98,18 +105,18 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: apps/api/pyproject.toml
+          cache-dependency-path: apps/api/requirements-dev.lock
       - name: Install security tools
         working-directory: apps/api
         run: |
           python -m pip install --upgrade pip
-          pip install bandit pip-audit
+          pip install --require-hashes -r requirements-dev.lock
       - name: Bandit (SAST)
         working-directory: apps/api
         run: bandit -q -c pyproject.toml -r app
       - name: pip-audit (dependency CVEs)
         working-directory: apps/api
-        run: pip-audit --skip-editable
+        run: pip-audit --require-hashes --disable-pip -r requirements-dev.lock
       - name: Gitleaks (secret scan)
         uses: gitleaks/gitleaks-action@v2
         env:
@@ -144,11 +151,12 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: apps/api/pyproject.toml
+          cache-dependency-path: apps/api/requirements-dev.lock
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install --require-hashes -r requirements-dev.lock
+          pip install --no-deps -e .
       - name: Alembic upgrade head
         env:
           SATRAK_API_DATABASE_URL: postgresql+asyncpg://satrak:satrak_ci@localhost:5432/satrak

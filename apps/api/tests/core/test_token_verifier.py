@@ -29,7 +29,7 @@ async def _reason(verifier: TokenVerifier, token: str) -> str:
 
 async def test_valid_token_yields_principal(idp: TestIdp) -> None:
     verifier, _ = _verifier(idp)
-    principal = await verifier.verify(idp.token(claims={"sid": "s-1"}))
+    principal = await verifier.verify(idp.token(claims={"sid": "s-1", "jti": "tok-1"}))
     assert principal.subject == "user-123"
     assert principal.issuer == TEST_ISSUER
     assert principal.token_id == "tok-1"

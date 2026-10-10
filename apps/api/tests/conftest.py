@@ -23,7 +23,8 @@ from app.testing.fakes import (
     InMemoryStorageProvider,
     InMemoryUnitOfWork,
 )
-from tests.auth_support import TestIdp, make_settings
+from tests.auth_support import TEST_ISSUER, TestIdp, make_settings
+from tests.authz_support import MemoryWorld
 
 
 @pytest.fixture(scope="session")
@@ -47,8 +48,13 @@ async def anonymous_client(settings: Settings, idp: TestIdp) -> AsyncIterator[As
 
 @pytest_asyncio.fixture
 async def client(settings: Settings, idp: TestIdp) -> AsyncIterator[AsyncClient]:
-    """An authenticated client (valid bearer token by default)."""
-    app = create_app(settings, auth=idp.runtime(settings.auth))
+    """An authenticated client (valid bearer token for an active user with no permissions)."""
+    world = MemoryWorld()
+    uid = await world.user("user-123")
+    world.store.users[uid] = (TEST_ISSUER, "user-123", "active")
+    app = create_app(
+        settings, auth=idp.runtime(settings.auth), access=world.store, audit=world.audit
+    )
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test", headers=idp.bearer()) as ac:
         yield ac

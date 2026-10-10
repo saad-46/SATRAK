@@ -156,3 +156,98 @@ async def test_concurrent_first_sight_creates_exactly_one_user(world: World) -> 
         *[world.store.get_or_create_user(issuer=ISSUER, subject="racer") for _ in range(10)]
     )
     assert len({u.id for u in users}) == 1
+
+
+# --- Sessions and revocation (Story 5), identical on memory and PostgreSQL ---------------------
+async def _register(world: World, user: uuid.UUID, key: str, **kwargs: object) -> object:
+    return await world.store.register_session(
+        user_id=user,
+        issuer=ISSUER,
+        session_key=key,
+        expires_at=NOW + DAY,
+        at=NOW,
+        **kwargs,  # type: ignore[arg-type]
+    )
+
+
+async def test_first_use_of_a_session_runs_the_audit_hook_exactly_once(world: World) -> None:
+    user = await world.user("s-user")
+    calls: list[int] = []
+
+    async def hook() -> None:
+        calls.append(1)
+
+    first = await _register(world, user, "sess-1", on_first_seen=hook)
+    second = await _register(world, user, "sess-1", on_first_seen=hook)
+    assert (first.is_new, first.revoked) == (True, False)  # type: ignore[attr-defined]
+    assert (second.is_new, second.revoked) == (False, False)  # type: ignore[attr-defined]
+    assert calls == [1]
+
+
+async def test_failing_audit_hook_rolls_the_registration_back(world: World) -> None:
+    user = await world.user("s-user")
+
+    async def broken() -> None:
+        raise RuntimeError("audit down")
+
+    with pytest.raises(RuntimeError):
+        await _register(world, user, "sess-2", on_first_seen=broken)
+    retry = await _register(world, user, "sess-2")
+    assert retry.is_new is True  # type: ignore[attr-defined]
+
+
+async def test_revoked_session_is_reported_revoked_and_stays_revoked(world: World) -> None:
+    user, admin = await world.user("s-user"), await world.user("admin")
+    await _register(world, user, "sess-3")
+    kwargs = {
+        "user_id": user,
+        "issuer": ISSUER,
+        "session_key": "sess-3",
+        "expires_at": NOW + DAY,
+        "revoked_by": admin,
+        "reason": "test",
+        "at": NOW,
+    }
+    await world.store.revoke_session(**kwargs)  # type: ignore[arg-type]
+    await world.store.revoke_session(**kwargs)  # idempotent
+    assert (await _register(world, user, "sess-3")).revoked is True  # type: ignore[attr-defined]
+
+
+async def test_a_session_can_be_revoked_before_it_is_ever_used(world: World) -> None:
+    user, admin = await world.user("s-user"), await world.user("admin")
+    await world.store.revoke_session(
+        user_id=user,
+        issuer=ISSUER,
+        session_key="never-seen",
+        expires_at=NOW + DAY,
+        revoked_by=admin,
+        reason="stolen",
+        at=NOW,
+    )
+    state = await _register(world, user, "never-seen")
+    assert (state.is_new, state.revoked) == (False, True)  # type: ignore[attr-defined]
+
+
+async def test_a_session_key_is_bound_to_the_user_that_first_used_it(world: World) -> None:
+    owner, intruder = await world.user("owner"), await world.user("intruder")
+    await _register(world, owner, "sess-4")
+    assert (await _register(world, intruder, "sess-4")).revoked is True  # type: ignore[attr-defined]
+    assert (await _register(world, owner, "sess-4")).revoked is False  # type: ignore[attr-defined]
+
+
+async def test_user_revocation_sets_revoked_before_and_never_moves_backwards(world: World) -> None:
+    user, admin = await world.user("s-user"), await world.user("admin")
+    store = world.store
+    await store.revoke_user_sessions(user_id=user, at=NOW, revoked_by=admin, reason="x")
+    await store.revoke_user_sessions(user_id=user, at=NOW - DAY, revoked_by=admin, reason="older")
+    fetched = await store.get_or_create_user(issuer=ISSUER, subject="s-user")
+    assert fetched.revoked_before == NOW
+
+
+async def test_assignment_jurisdictions_lists_only_live_assignments(world: World) -> None:
+    t = await _tree(world)
+    user, role = await world.user("assigned"), await world.role("viewer", [PERM])
+    await world.assign(user, role, t["c1"])
+    await world.assign(user, role, t["c2"], revoked=True)
+    assert await world.store.assignment_jurisdictions(user_id=user) == {t["c1"]}
+    assert await world.store.assignment_jurisdictions(user_id=uuid.uuid4()) == frozenset()

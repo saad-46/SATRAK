@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
 from typing import Any
 
 import httpx
@@ -117,7 +118,7 @@ class TestIdp:
             "sub": "user-123",
             "iat": now,
             "exp": now + 900,
-            "jti": "tok-1",
+            "jti": uuid.uuid4().hex,
         }
         payload.update(claims or {})
         for name in remove:

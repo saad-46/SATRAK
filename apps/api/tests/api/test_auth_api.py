@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from app.core.config import AuthSettings, Environment, Settings
+from app.core.security_audit import InMemorySecurityAuditLog
 from app.main import create_app
 from tests.auth_support import TestIdp, auth_settings, make_settings
 from tests.authz_support import InMemoryAccessStore
@@ -44,7 +45,12 @@ def _operations(app: FastAPI) -> list[tuple[str, str]]:
 def app(settings: Settings, idp: TestIdp) -> FastAPI:
     # An empty in-memory access store: authentication succeeds, authorization (default deny)
     # then yields 403 on permissioned routes — never 401, and never 503 from a missing database.
-    return create_app(settings, auth=idp.runtime(settings.auth), access=InMemoryAccessStore())
+    return create_app(
+        settings,
+        auth=idp.runtime(settings.auth),
+        access=InMemoryAccessStore(),
+        audit=InMemorySecurityAuditLog(),
+    )
 
 
 def _protected(app: FastAPI) -> list[tuple[str, str]]:

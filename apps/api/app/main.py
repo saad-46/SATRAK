@@ -23,7 +23,9 @@ from app.core.exception_handlers import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import RequestContextMiddleware
 from app.core.openapi import build_custom_openapi
+from app.core.security_audit import SecurityAuditLog
 from app.db.access_store import SqlAccessStore
+from app.db.security_audit_store import SqlSecurityAuditLog
 from app.db.session import dispose_engine, get_sessionmaker
 
 
@@ -48,11 +50,18 @@ def _default_access_store(settings: Settings) -> AccessStore | None:
     return SqlAccessStore(get_sessionmaker)
 
 
+def _default_security_audit(settings: Settings) -> SecurityAuditLog | None:
+    if settings.database_url is None:
+        return None
+    return SqlSecurityAuditLog(get_sessionmaker)
+
+
 def create_app(
     settings: Settings | None = None,
     *,
     auth: AuthRuntime | None = None,
     access: AccessStore | None = None,
+    audit: SecurityAuditLog | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings)
@@ -71,6 +80,8 @@ def create_app(
     # Authorization state (roles, assignments, jurisdictions). Defaults to PostgreSQL;
     # tests inject an in-memory store with identical semantics.
     app.state.access = access if access is not None else _default_access_store(settings)
+    # Durable security audit log (append-only, hash-chained). ``None`` fails closed.
+    app.state.audit = audit if audit is not None else _default_security_audit(settings)
     # Earth Observation API dependencies (in-memory backend today; swapped for the
     # SQLAlchemy/PostGIS adapter without endpoint changes when persistence lands).
     app.state.earth_observation = build_earth_observation_api()

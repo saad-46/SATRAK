@@ -9,8 +9,11 @@ from app.db.models.access import (
     RolePermission,
     UserAccount,
 )
+from app.db.models.security import AuditEvent, AuthSession
 
 __all__ = [
+    "AuditEvent",
+    "AuthSession",
     "Jurisdiction",
     "Organization",
     "Permission",

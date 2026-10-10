@@ -43,9 +43,13 @@ cannot meet the SLA, so each request is checked against server-side authorizatio
 1. Revocation records: per-session revocation (`sid` if the IdP supplies it, else `jti`), and a per-user
    `revoked_before` timestamp; a token is rejected if `iat < revoked_before` or its session/jti is revoked, or
    the user is disabled, or the relevant assignments were removed.
-2. Evaluation is performed on **every** request from a shared store (Redis cache in front of PostgreSQL). Cache
-   entries have a hard TTL of at most **15 seconds** (configurable, default 15 s), and revocation actively
-   invalidates them, so the propagation bound is the TTL plus clock skew, well inside 60 s.
+2. Evaluation is performed on **every** request against the authoritative PostgreSQL state (implemented in
+   Story 5), so revocation propagates to every instance on the very next request (propagation bound: one
+   request, well inside 60 s). The Redis read-through cache (hard TTL of at most 15 s, invalidated on
+   revocation) described in the original draft is **deferred**: it is an optimization to add only if measured
+   load requires it, and it would be bounded by that TTL. Session rows (`auth_session`) are keyed by `sid`,
+   else `jti`; a session key is bound to the first user that presents it. `iat` has one-second resolution, so a
+   token minted within the same second as a user-level revocation is also rejected (the user re-authenticates).
 3. **Fail closed:** if neither cache nor database can answer, requests are denied (503/401), never allowed.
 4. Revocation is exposed to administrators and recorded in the audit log (`session.revoked`).
 5. Tests must prove: revoked session/user rejected on the very next request with a populated cache; a second
@@ -53,8 +57,14 @@ cannot meet the SLA, so each request is checked against server-side authorizatio
    measured propagation reported, not assumed. Refresh-token rotation and offline mobile sessions are out of
    scope (they remain an open item; N14).
 
-**F. Audit:** `user.logged_in`, `user.login_failed`, `access.denied`, `session.revoked` are written durably
-(see sprint spec), and fail closed for denials.
+**F. Audit (implemented in Story 5):** `user.logged_in` (first use of a session, written inside the session
+registration, so if the audit write fails the request gets 503 and the registration rolls back: no login goes unrecorded),
+`user.login_failed` (reason code only, never the token), `access.denied` (actor, permission, jurisdiction, route)
+and `session.revoked` go to `audit_event`: append-only (UPDATE/DELETE/TRUNCATE rejected by triggers, including for
+the table owner) and hash-chained under an advisory lock, with a verifier that reports the first broken position.
+Denials stay denials if the audit store is down (logged at error level); anything that would _allow_ a new
+session fails closed with 503 `audit_unavailable`. Tokens are never stored. Revocation is performed first and then
+audited (a restrictive action is not blocked by an audit outage; the failure is reported as 503).
 
 ## Unresolved (need owner or IdP information)
 

@@ -61,7 +61,9 @@ async def env(settings: Settings, idp: TestIdp) -> AsyncIterator[Env]:
         if role is not None and where is not None:
             await world.assign(uid, role, where)
 
-    app = create_app(settings, auth=idp.runtime(settings.auth), access=world.store)
+    app = create_app(
+        settings, auth=idp.runtime(settings.auth), access=world.store, audit=world.audit
+    )
     eo: EarthObservationApi = app.state.earth_observation
     home_scene = make_available_scene(native_id="HOME_1", jurisdiction_id=HOME)
     other_scene = make_available_scene(native_id="OTHER_1", jurisdiction_id=OTHER)

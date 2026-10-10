@@ -21,6 +21,11 @@ class Principal:
     token_id: str | None = None
     session_id: str | None = None
 
+    @property
+    def session_key(self) -> str | None:
+        """Identifier revocation targets: the IdP session (``sid``), else the token id (``jti``)."""
+        return self.session_id or self.token_id
+
     @classmethod
     def dev_authentication_disabled(cls) -> Principal:
         """Stand-in used only when authentication is explicitly disabled (dev/test)."""

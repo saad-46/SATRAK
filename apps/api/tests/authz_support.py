@@ -14,7 +14,8 @@ from typing import Protocol
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
-from app.core.authz import AccessStore, AccessUser
+from app.core.authz import AccessStore, AccessUser, FirstSeen, SessionState
+from app.core.security_audit import InMemorySecurityAuditLog
 from app.db.access_store import SqlAccessStore
 
 NOW = datetime(2026, 10, 10, 12, 0, tzinfo=UTC)
@@ -69,11 +70,16 @@ class InMemoryAccessStore:
     deleted_jurisdictions: set[uuid.UUID] = field(default_factory=set)
     roles: dict[uuid.UUID, tuple[frozenset[str], bool]] = field(default_factory=dict)
     assignments: list[_Assignment] = field(default_factory=list)
+    revoked_before: dict[uuid.UUID, datetime] = field(default_factory=dict)
+    # (issuer, session_key) -> (user_id, revoked)
+    sessions: dict[tuple[str, str], tuple[uuid.UUID, bool]] = field(default_factory=dict)
 
     async def get_or_create_user(self, *, issuer: str, subject: str) -> AccessUser:
         for uid, (iss, sub, status) in self.users.items():
             if (iss, sub) == (issuer, subject):
-                return AccessUser(id=uid, status=status)
+                return AccessUser(
+                    id=uid, status=status, revoked_before=self.revoked_before.get(uid)
+                )
         uid = uuid.uuid4()
         self.users[uid] = (issuer, subject, "pending_role_assignment")
         return AccessUser(id=uid, status="pending_role_assignment")
@@ -109,10 +115,61 @@ class InMemoryAccessStore:
                     changed = True
         return frozenset(result)
 
+    async def register_session(
+        self,
+        *,
+        user_id: uuid.UUID,
+        issuer: str,
+        session_key: str,
+        expires_at: datetime,
+        at: datetime,
+        on_first_seen: FirstSeen | None = None,
+    ) -> SessionState:
+        key = (issuer, session_key)
+        if key in self.sessions:
+            owner, revoked = self.sessions[key]
+            return SessionState(is_new=False, revoked=revoked or owner != user_id)
+        self.sessions[key] = (user_id, False)
+        if on_first_seen is not None:
+            try:
+                await on_first_seen()
+            except BaseException:
+                del self.sessions[key]  # mirrors the SQL transaction rollback
+                raise
+        return SessionState(is_new=True, revoked=False)
+
+    async def revoke_session(
+        self,
+        *,
+        user_id: uuid.UUID,
+        issuer: str,
+        session_key: str,
+        expires_at: datetime,
+        revoked_by: uuid.UUID,
+        reason: str,
+        at: datetime,
+    ) -> None:
+        key = (issuer, session_key)
+        owner = self.sessions.get(key, (user_id, False))[0]
+        if owner == user_id:
+            self.sessions[key] = (user_id, True)
+
+    async def revoke_user_sessions(
+        self, *, user_id: uuid.UUID, at: datetime, revoked_by: uuid.UUID, reason: str
+    ) -> None:
+        if user_id in self.users:
+            self.revoked_before[user_id] = max(self.revoked_before.get(user_id, at), at)
+
+    async def assignment_jurisdictions(self, *, user_id: uuid.UUID) -> frozenset[uuid.UUID]:
+        return frozenset(
+            a.jurisdiction for a in self.assignments if a.user == user_id and not a.revoked
+        )
+
 
 class MemoryWorld:
     def __init__(self) -> None:
         self.store = InMemoryAccessStore()
+        self.audit = InMemorySecurityAuditLog()
 
     async def jurisdiction(
         self, code: str, level: str, parent: uuid.UUID | None = None, *, deleted: bool = False

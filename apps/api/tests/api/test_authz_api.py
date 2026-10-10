@@ -63,7 +63,9 @@ async def env(settings: Settings, idp: TestIdp) -> AsyncIterator[Env]:
         world.store.users[uid] = (TEST_ISSUER, subject, "active")
         await world.assign(uid, viewer, where)
     jurisdictions = {"c1": c1, "c2": c2, "c3": c3, "s1": s1}
-    app = create_app(settings, auth=idp.runtime(settings.auth), access=world.store)
+    app = create_app(
+        settings, auth=idp.runtime(settings.auth), access=world.store, audit=world.audit
+    )
     _add_probe_routes(app, jurisdictions)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -97,7 +99,14 @@ async def test_cross_jurisdiction_object_access_is_403(env: Env) -> None:
     for name in ("c2", "c3", "s1", "does-not-exist"):
         denied = await env.client.get(f"/__probe/object/{name}", headers=env.headers("alice"))
         assert denied.status_code == 403, name
-        assert name not in denied.text.replace("/__probe/object/" + name, "")
+        body = denied.json()
+        # The denial never describes the object (the random request id is excluded: it can
+        # contain any short hex string by chance).
+        assert (
+            name
+            not in {k: v for k, v in body.items() if k not in {"instance", "request_id"}}.values()
+        )
+        assert "detail" in body and name not in body["detail"]
 
 
 async def test_disabled_account_is_403(env: Env) -> None:

@@ -34,7 +34,9 @@ async def eo_env(
 ) -> AsyncIterator[tuple[AsyncClient, EarthObservationApi]]:
     """An app + client whose Earth Observation container the test can seed directly."""
     world = await eo_world()
-    app = create_app(settings, auth=idp.runtime(settings.auth), access=world.store)
+    app = create_app(
+        settings, auth=idp.runtime(settings.auth), access=world.store, audit=world.audit
+    )
     container: EarthObservationApi = app.state.earth_observation
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test", headers=idp.bearer()) as ac:

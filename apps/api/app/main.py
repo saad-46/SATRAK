@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.v1.endpoints.earth_observation.composition import build_earth_observation_api
 from app.api.v1.router import api_router
 from app.core.config import Settings, get_settings
 from app.core.exception_handlers import register_exception_handlers
@@ -46,6 +47,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = settings
+    # Earth Observation API dependencies (in-memory backend today; swapped for the
+    # SQLAlchemy/PostGIS adapter without endpoint changes when persistence lands).
+    app.state.earth_observation = build_earth_observation_api()
 
     # --- Middleware (order matters: context binding is outermost) ------------
     app.add_middleware(RequestContextMiddleware)

@@ -18,6 +18,7 @@ from app.contexts.earth_observation.domain.aggregates.scene import Scene
 from app.contexts.earth_observation.domain.enums import SceneStatus, SensorType
 from app.contexts.earth_observation.domain.value_objects.scene_id import ProviderSceneId
 from app.shared.domain.identifiers import EntityId
+from app.shared.domain.scope import AccessScope
 from app.shared.persistence.repository import Repository
 from app.shared.value_objects.geo import BoundingBox
 from app.shared.value_objects.ranges import TimeRange
@@ -33,6 +34,7 @@ class SceneQuery:
     timeline views (spec §10).
     """
 
+    scope: AccessScope
     area: BoundingBox | None = None
     window: TimeRange | None = None
     statuses: frozenset[SceneStatus] = field(default_factory=frozenset)
@@ -40,9 +42,10 @@ class SceneQuery:
     sensor_type: SensorType | None = None
     max_cloud_cover_pct: float | None = None
     aoi_id: EntityId | None = None
-    # Jurisdiction scope: ``None`` = unrestricted (trusted internal callers only); an empty
-    # set matches nothing (default deny); otherwise rows must belong to one of the ids.
-    jurisdiction_ids: frozenset[EntityId] | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.scope, AccessScope):
+            raise TypeError("SceneQuery.scope must be an AccessScope")
 
 
 @runtime_checkable
@@ -54,7 +57,7 @@ class SceneRepository(Repository[Scene], Protocol):
     ) -> Scene | None: ...
 
     async def list_for_aoi(
-        self, aoi_id: EntityId, *, limit: int = 100, offset: int = 0
+        self, aoi_id: EntityId, *, scope: AccessScope, limit: int = 100, offset: int = 0
     ) -> Sequence[Scene]: ...
 
     async def search(
@@ -68,6 +71,8 @@ class SceneRepository(Repository[Scene], Protocol):
 class AoiRepository(Repository[AreaOfInterest], Protocol):
     """Persistence contract for :class:`AreaOfInterest` aggregates."""
 
-    async def list_active(
-        self, *, limit: int = 100, offset: int = 0
+    async def list_in_scope(
+        self, *, scope: AccessScope, active_only: bool = True, limit: int = 100, offset: int = 0
     ) -> Sequence[AreaOfInterest]: ...
+
+    async def count_in_scope(self, *, scope: AccessScope, active_only: bool = True) -> int: ...

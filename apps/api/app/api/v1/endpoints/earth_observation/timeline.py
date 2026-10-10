@@ -46,7 +46,7 @@ async def area_timeline(
         area=area,
         window=default_window(from_, to),
         limit=limit,
-        jurisdiction_ids=access.jurisdictions,
+        scope=access.scope,
     )
     return TimelineResponse(
         area=BoundingBoxSchema.from_domain(area),

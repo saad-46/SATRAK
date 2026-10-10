@@ -99,3 +99,18 @@ refresh tokens are held by the SPA/BFF; MFA enforcement location; service-accoun
 - **Session pruning.** `auth_session` rows are pruned by `app.db.maintenance.prune_auth_sessions` through the
   audited privileged role, `session_retention_days` after token expiry (default 30, minimum 1). The number
   is a placeholder: **the records-retention policy needs confirmation**. `audit_event` is never pruned.
+
+## Hardening phase notes (owner approval 2026-10-10)
+
+- **Degraded-mode metrics.** `rate_limiter_unavailable_total{policy,mode}` (`mode` is `fail_closed` or
+  `local_fallback`), `rate_limit_fallback_decisions_total{outcome}` and the marker
+  `rate_limiter_degraded_last_timestamp_seconds`. Read them at `GET /api/v1/system/metrics`
+  (`?format=prometheus` for text exposition). The endpoint needs `system:metrics:read` held at national
+  scope; it was previously open to any authenticated user. Counters are per process.
+- **Trusted proxies.** `trusted_proxy_cidrs` limits `X-Forwarded-For` to requests whose TCP peer is inside
+  those networks, and is mandatory with `trusted_proxy_hops > 0` in staging and production. All header lines
+  are joined before the hop count is applied. With hops 0 behind a load balancer all clients share one
+  bucket, so production logs `rate_limit_no_trusted_proxy`. The deployment must still ensure only the
+  proxy can reach the API port.
+- **Readiness.** `/health/ready` is unauthenticated by design. It is now limited per IP (`api_ip`), caches its
+  result for 2 s, reuses the shared Redis pool, and returns only `unavailable` as detail.

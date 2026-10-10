@@ -29,11 +29,10 @@ from app.api.v1.endpoints.earth_observation.schemas import (
     TimelineResponse,
 )
 from app.core.exceptions import NotFoundError
+from app.shared.domain.scope import TenantScope
 from app.shared.pagination import Page
 
 router = APIRouter(tags=["earth-observation: aoi"])
-
-_LIST_CAP = 10_000
 
 
 @router.get("", response_model=PageResponse[AoiSummary], summary="Search AOIs")
@@ -43,14 +42,13 @@ async def list_aois(
     params: PageParamsDep,
     active_only: bool = Query(True, description="Only ACTIVE AOIs"),
 ) -> PageResponse[AoiSummary]:
-    if active_only:
-        items = list(await eo.aois.list_active(limit=_LIST_CAP, offset=0))
-    else:
-        items = list(await eo.aois.list(limit=_LIST_CAP, offset=0))
-    items = [aoi for aoi in items if access.allows(aoi.jurisdiction_id)]
     request = params.to_page_request()
-    window = items[request.offset : request.offset + request.limit]
-    page = Page.create([AoiSummary.from_domain(aoi) for aoi in window], len(items), request)
+    # The repository applies the caller's scope before paging, so pages are never short.
+    window = await eo.aois.list_in_scope(
+        scope=access.scope, active_only=active_only, limit=request.limit, offset=request.offset
+    )
+    total = await eo.aois.count_in_scope(scope=access.scope, active_only=active_only)
+    page = Page.create([AoiSummary.from_domain(aoi) for aoi in window], total, request)
     return PageResponse.from_page(page)
 
 
@@ -87,7 +85,7 @@ async def get_aoi_timeline(
         area=aoi.bounding_box,
         window=default_window(from_, to),
         limit=limit,
-        jurisdiction_ids=frozenset({aoi.jurisdiction_id}),
+        scope=TenantScope(frozenset({aoi.jurisdiction_id})),
     )
     return TimelineResponse(
         area=BoundingBoxSchema.from_domain(aoi.bounding_box),

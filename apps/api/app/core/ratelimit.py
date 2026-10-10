@@ -222,6 +222,20 @@ def _normalise(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> str:
     return str(address)
 
 
+def _peer_is_trusted(
+    peer: str | None, networks: Sequence[ipaddress.IPv4Network | ipaddress.IPv6Network]
+) -> bool:
+    if not peer:
+        return False
+    try:
+        address = ipaddress.ip_address(peer)
+    except ValueError:
+        return False
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        address = address.ipv4_mapped
+    return any(address in network for network in networks if network.version == address.version)
+
+
 def _normalise_text(value: str) -> str:
     try:
         return _normalise(ipaddress.ip_address(value))
@@ -229,12 +243,20 @@ def _normalise_text(value: str) -> str:
         return value
 
 
-def resolve_client_ip(peer: str | None, forwarded_for: str | None, trusted_hops: int) -> str:
+def resolve_client_ip(
+    peer: str | None,
+    forwarded_for: str | None,
+    trusted_hops: int,
+    trusted_networks: Sequence[ipaddress.IPv4Network | ipaddress.IPv6Network] = (),
+) -> str:
     """The caller's address. ``X-Forwarded-For`` is honoured only behind ``trusted_hops``
-    reverse proxies, and then only the entry those proxies appended (counted from the right):
-    anything a client put further left is ignored."""
+    reverse proxies, only when the TCP peer is one of ``trusted_networks`` (if any are
+    configured), and then only the entry those proxies appended (counted from the right):
+    anything a client put further left, or sent by connecting directly, is ignored."""
     fallback = _normalise_text(peer) if peer else "unknown"
     if trusted_hops <= 0 or not forwarded_for:
+        return fallback
+    if trusted_networks and not _peer_is_trusted(peer, trusted_networks):
         return fallback
     parts = [p.strip() for p in forwarded_for.split(",") if p.strip()]
     if len(parts) < trusted_hops:

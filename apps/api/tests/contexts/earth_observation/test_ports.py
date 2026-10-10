@@ -32,6 +32,7 @@ from app.contexts.earth_observation.domain.value_objects import (
     ProviderSceneId,
 )
 from app.shared.domain.identifiers import EntityId
+from app.shared.domain.scope import AccessScope
 from app.shared.persistence.repository import InMemoryRepository
 from app.shared.services.storage import InMemoryStorageProvider, StorageProvider
 from app.shared.value_objects.geo import BoundingBox
@@ -75,12 +76,19 @@ class _FakeSceneRepo(InMemoryRepository[Scene]):
 
 
 class _FakeAoiRepo(InMemoryRepository[AreaOfInterest]):
-    async def list_active(self, *, limit: int = 100, offset: int = 0) -> Sequence[AreaOfInterest]:
+    async def list_in_scope(
+        self, *, scope: AccessScope, active_only: bool = True, limit: int = 100, offset: int = 0
+    ) -> Sequence[AreaOfInterest]:
         return []
+
+    async def count_in_scope(self, *, scope: AccessScope, active_only: bool = True) -> int:
+        return 0
 
 
 class _FakeTimeline:
-    async def timeline(self, *, area: BoundingBox, window: TimeRange) -> Sequence[Scene]:
+    async def timeline(
+        self, *, area: BoundingBox, window: TimeRange, scope: AccessScope
+    ) -> Sequence[Scene]:
         return []
 
 

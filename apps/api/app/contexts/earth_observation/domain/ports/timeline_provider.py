@@ -11,7 +11,7 @@ from collections.abc import Sequence
 from typing import Protocol, runtime_checkable
 
 from app.contexts.earth_observation.domain.aggregates.scene import Scene
-from app.shared.domain.identifiers import EntityId
+from app.shared.domain.scope import AccessScope
 from app.shared.value_objects.geo import BoundingBox
 from app.shared.value_objects.ranges import TimeRange
 
@@ -25,5 +25,5 @@ class TimelineProvider(Protocol):
         *,
         area: BoundingBox,
         window: TimeRange,
-        jurisdiction_ids: frozenset[EntityId] | None = None,
+        scope: AccessScope,
     ) -> Sequence[Scene]: ...

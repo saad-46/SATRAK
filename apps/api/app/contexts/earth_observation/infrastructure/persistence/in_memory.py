@@ -19,6 +19,7 @@ from app.contexts.earth_observation.domain.ports.repositories import SceneQuery
 from app.contexts.earth_observation.domain.value_objects.scene_id import ProviderSceneId
 from app.shared.domain.enums import EntityStatus
 from app.shared.domain.identifiers import EntityId
+from app.shared.domain.scope import AccessScope
 from app.shared.persistence.repository import InMemoryRepository
 from app.shared.value_objects.geo import BoundingBox
 from app.shared.value_objects.ranges import TimeRange
@@ -26,7 +27,7 @@ from app.shared.value_objects.ranges import TimeRange
 
 def _matches(scene: Scene, query: SceneQuery) -> bool:
     acq = scene.acquisition
-    if query.jurisdiction_ids is not None and scene.jurisdiction_id not in query.jurisdiction_ids:
+    if not query.scope.allows(scene.jurisdiction_id):
         return False
     if query.statuses and scene.status not in query.statuses:
         return False
@@ -73,9 +74,9 @@ class InMemorySceneRepository(InMemoryRepository[Scene]):
         return None
 
     async def list_for_aoi(
-        self, aoi_id: EntityId, *, limit: int = 100, offset: int = 0
+        self, aoi_id: EntityId, *, scope: AccessScope, limit: int = 100, offset: int = 0
     ) -> Sequence[Scene]:
-        return await self.search(SceneQuery(aoi_id=aoi_id), limit=limit, offset=offset)
+        return await self.search(SceneQuery(scope=scope, aoi_id=aoi_id), limit=limit, offset=offset)
 
     async def search(
         self, query: SceneQuery, *, limit: int = 100, offset: int = 0
@@ -100,11 +101,21 @@ class InMemorySceneRepository(InMemoryRepository[Scene]):
 class InMemoryAoiRepository(InMemoryRepository[AreaOfInterest]):
     """Dict-backed AOI repository with active-listing support."""
 
-    async def list_active(self, *, limit: int = 100, offset: int = 0) -> Sequence[AreaOfInterest]:
-        active = [
+    def _in_scope(self, scope: AccessScope, active_only: bool) -> list[AreaOfInterest]:
+        matches = [
             aoi
             for aoi in self._store.values()
-            if aoi.status is EntityStatus.ACTIVE and not aoi.is_deleted
+            if not aoi.is_deleted
+            and scope.allows(aoi.jurisdiction_id)
+            and (not active_only or aoi.status is EntityStatus.ACTIVE)
         ]
-        active.sort(key=lambda a: (a.name, str(a.id)))
-        return active[offset : offset + limit]
+        matches.sort(key=lambda a: (a.name, str(a.id)))
+        return matches
+
+    async def list_in_scope(
+        self, *, scope: AccessScope, active_only: bool = True, limit: int = 100, offset: int = 0
+    ) -> Sequence[AreaOfInterest]:
+        return self._in_scope(scope, active_only)[offset : offset + limit]
+
+    async def count_in_scope(self, *, scope: AccessScope, active_only: bool = True) -> int:
+        return len(self._in_scope(scope, active_only))

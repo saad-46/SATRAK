@@ -135,6 +135,13 @@ type = "forbidden"
 source_modules = ["app.api", "app.contexts", "app.main"]
 forbidden_modules = ["app.db.privileged"]
 
+# The all-tenants repository scope is for system jobs, never request handling (ADR-0011).
+[[tool.importlinter.contracts]]
+name = "The web layer never uses the system-wide repository scope"
+type = "forbidden"
+source_modules = ["app.api", "app.main"]
+forbidden_modules = ["app.shared.domain.system_scope"]
+
 [[tool.importlinter.contracts]]
 name = "Core infrastructure does not depend on API or contexts"
 type = "forbidden"

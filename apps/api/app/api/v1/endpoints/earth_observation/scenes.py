@@ -53,13 +53,13 @@ async def search_scenes(
     max_cloud: float | None = Query(None, ge=0, le=100, description="Max cloud cover %"),
 ) -> PageResponse[SceneSummary]:
     query = SceneQuery(
+        scope=access.scope,
         area=parse_bbox(bbox) if bbox else None,
         window=optional_window(from_, to),
         statuses=frozenset({status}) if status is not None else frozenset(),
         provider=provider,
         sensor_type=sensor_type,
         max_cloud_cover_pct=max_cloud,
-        jurisdiction_ids=access.jurisdictions,
     )
     request = params.to_page_request()
     page = await eo.scene_query.search(query, request=request)

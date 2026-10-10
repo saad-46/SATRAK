@@ -190,3 +190,34 @@ def test_ipv6_clients_are_keyed_by_subscriber_prefix() -> None:
     assert a == b == "2001:db8:1:2::/64"
     assert resolve_client_ip("::ffff:203.0.113.5", None, 0) == "203.0.113.5"
     assert resolve_client_ip("203.0.113.5", "2001:db8:1:2:1::1", 1) == "2001:db8:1:2::/64"
+
+
+def test_forwarded_for_is_believed_only_from_trusted_proxy_networks() -> None:
+    import ipaddress
+
+    nets = [ipaddress.ip_network("10.0.0.0/8")]
+    # From the proxy: the entry it appended is used.
+    assert resolve_client_ip("10.1.2.3", "9.9.9.9, 203.0.113.7", 1, nets) == "203.0.113.7"
+    # Connecting directly (peer outside the proxy networks): the header is ignored.
+    assert resolve_client_ip("198.51.100.4", "203.0.113.7", 1, nets) == "198.51.100.4"
+    assert resolve_client_ip(None, "203.0.113.7", 1, nets) == "unknown"
+    # IPv4-mapped peer addresses are matched against IPv4 networks.
+    assert resolve_client_ip("::ffff:10.1.2.3", "203.0.113.7", 1, nets) == "203.0.113.7"
+    # No networks configured keeps the hop-count behaviour (development).
+    assert resolve_client_ip("198.51.100.4", "203.0.113.7", 1) == "203.0.113.7"
+
+
+def test_trusted_proxy_cidrs_are_validated_and_required_in_production() -> None:
+    from app.core.config import Environment, RateLimitSettings, Settings
+    from tests.auth_support import auth_settings
+
+    with pytest.raises(ValueError):
+        RateLimitSettings(trusted_proxy_cidrs=["not-a-network"])
+    assert RateLimitSettings(trusted_proxy_cidrs="10.0.0.0/8, fd00::/8").trusted_networks
+    with pytest.raises(ValueError, match="trusted_proxy_cidrs"):
+        Settings(
+            environment=Environment.PRODUCTION,
+            redis_url="redis://x:6379/0",
+            auth=auth_settings(),
+            rate_limit=RateLimitSettings(trusted_proxy_hops=1),
+        )

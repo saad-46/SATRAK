@@ -27,7 +27,7 @@ from tests.auth_support import TEST_ISSUER, TestIdp, auth_settings
 from tests.authz_support import MemoryWorld
 
 SYSTEM = "/api/v1/system/info"
-PERMS = ["eo:scene:read", "eo:aoi:read", "eo:tile:read", "session:revoke"]
+PERMS = ["eo:scene:read", "eo:aoi:read", "eo:tile:read", "session:revoke", "system:metrics:read"]
 
 
 def _spec(limit: int, window: int = 60) -> list[RatePolicySpec]:
@@ -378,3 +378,63 @@ def test_production_cannot_disable_limits_or_run_without_redis() -> None:
     with pytest.raises(ValueError, match="requires redis_url"):
         Settings(**base, rate_limit=RateLimitSettings())  # type: ignore[arg-type]
     Settings(**base, rate_limit=RateLimitSettings(), redis_url="redis://r:6379/0")  # type: ignore[arg-type]
+
+
+# --- Degraded-mode observability and operational endpoints --------------------------------------
+def _counter(name: str, **labels: str) -> int:
+    from app.core.metrics import metrics
+
+    return sum(
+        int(c["value"])  # type: ignore[call-overload]
+        for c in metrics.snapshot()["counters"]  # type: ignore[attr-defined]
+        if c["name"] == name and all(c["labels"].get(k) == v for k, v in labels.items())  # type: ignore[index, attr-defined]
+    )
+
+
+async def test_degraded_mode_is_counted_by_mode_and_exposed_to_operators(env: Env) -> None:
+    before_closed = _counter("rate_limiter_unavailable_total", mode="fail_closed")
+    before_local = _counter("rate_limiter_unavailable_total", mode="local_fallback")
+    before_denied = _counter("rate_limit_fallback_decisions_total", outcome="denied")
+    async with env.rebuild(DownLimiter()) as client:
+        await client.post("/api/v1/auth/logout", headers=env.headers())  # critical
+        for _ in range(6):  # ordinary traffic exhausts the strict local budget
+            await client.get(SYSTEM, headers=env.headers())
+    assert _counter("rate_limiter_unavailable_total", mode="fail_closed") > before_closed
+    assert _counter("rate_limiter_unavailable_total", mode="local_fallback") > before_local
+    assert _counter("rate_limit_fallback_decisions_total", outcome="denied") > before_denied
+
+    r = await env.client.get(
+        "/api/v1/system/metrics?format=prometheus", headers=env.headers("admin")
+    )
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/plain")
+    assert "satrak_rate_limiter_unavailable_total{" in r.text
+    assert "satrak_rate_limiter_degraded_last_timestamp_seconds" in r.text
+    as_json = await env.client.get("/api/v1/system/metrics", headers=env.headers("admin"))
+    assert "rate_limiter_degraded" in as_json.json()["last_events"]
+
+
+async def test_metrics_need_the_permission_at_national_scope(env: Env) -> None:
+    url = "/api/v1/system/metrics"
+    assert (await env.client.get(url)).status_code == 401
+    assert (await env.client.get(url, headers=env.headers("nobody"))).status_code == 403
+    # A holder of the permission in a narrower (non-national) jurisdiction is still refused.
+    narrow = uuid.uuid4()
+    env.world.store.parents[narrow] = HOME
+    role = await env.world.role("metrics-local", ["system:metrics:read"])
+    uid = await env.world.user("local-admin")
+    env.world.store.users[uid] = (TEST_ISSUER, "local-admin", "active")
+    await env.world.assign(uid, role, narrow)
+    assert (await env.client.get(url, headers=env.headers("local-admin"))).status_code == 403
+
+
+async def test_readiness_is_cached_and_reveals_no_internals(idp: TestIdp) -> None:
+    e, client = await _make_env(idp, _settings())
+    async with client:
+        first = await client.get("/api/v1/health/ready")
+        stamp = e.app.state.readiness_cache[0]
+        codes = [(await client.get("/api/v1/health/ready")).status_code for _ in range(3)]
+    assert first.status_code == 503 and codes == [503, 503, 503]  # degraded without datastores
+    assert e.app.state.readiness_cache[0] == stamp  # repeat calls reused one probe
+    body = first.json()
+    assert {d["detail"] for d in body["dependencies"]} == {"unavailable"}
+    assert getattr(e.app.state, "readiness_cache", None) is not None  # probes share one check

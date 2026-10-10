@@ -7,6 +7,7 @@ with a clear error instead of a runtime ``KeyError`` deep into a request.
 
 from __future__ import annotations
 
+import ipaddress
 from enum import StrEnum
 from functools import lru_cache
 from typing import Annotated, Literal
@@ -161,6 +162,10 @@ class RateLimitSettings(BaseSettings):
     # Number of trusted reverse proxies in front of the API. 0 = use the TCP peer address and
     # ignore X-Forwarded-For entirely (a client-supplied header must never pick its own IP).
     trusted_proxy_hops: int = Field(default=0, ge=0, le=10)
+    # Networks the reverse proxies connect from. When set, X-Forwarded-For is believed only if the
+    # TCP peer is inside one of them, so connecting to the API directly cannot spoof an address.
+    # Required (non-empty) whenever trusted_proxy_hops > 0 in staging and production.
+    trusted_proxy_cidrs: Annotated[list[str], NoDecode] = Field(default_factory=list)
     # Progressive throttling after repeated authentication failures from one IP.
     penalty_base_seconds: int = Field(default=60, gt=0)
     penalty_max_seconds: int = Field(default=3600, gt=0)
@@ -169,6 +174,22 @@ class RateLimitSettings(BaseSettings):
     fallback_per_minute: int = Field(default=60, gt=0)
     # Connections the limiter may open per process; callers queue (up to 1 s) beyond this.
     redis_max_connections: int = Field(default=100, ge=1, le=10000)
+
+    @field_validator("trusted_proxy_cidrs", mode="before")
+    @classmethod
+    def _cidr_csv(cls, value: object) -> object:
+        return _split_csv(value)
+
+    @field_validator("trusted_proxy_cidrs")
+    @classmethod
+    def _valid_cidrs(cls, value: list[str]) -> list[str]:
+        for entry in value:
+            ipaddress.ip_network(entry, strict=False)  # raises ValueError on garbage
+        return value
+
+    @property
+    def trusted_networks(self) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+        return [ipaddress.ip_network(entry, strict=False) for entry in self.trusted_proxy_cidrs]
 
     @model_validator(mode="after")
     def _known_policies_only(self) -> RateLimitSettings:
@@ -216,6 +237,10 @@ class Settings(BaseSettings):
     # Optional so the app can boot for liveness checks without a database
     # present (readiness checks surface the real connectivity state instead).
     database_url: PostgresDsn | None = None
+    # ``enforce`` refuses to start when the application's database role could bypass row-level
+    # security (superuser, BYPASSRLS, table owner, ...). ``warn`` only logs and is rejected in
+    # staging and production.
+    database_role_check: Literal["enforce", "warn"] = "enforce"
     database_pool_size: int = 5
     database_max_overflow: int = 10
     redis_url: RedisDsn | None = None
@@ -260,6 +285,20 @@ class Settings(BaseSettings):
             Environment.PRODUCTION,
         ):
             raise ValueError("rate limiting cannot be disabled in staging or production")
+        if self.database_role_check != "enforce" and self.environment in (
+            Environment.STAGING,
+            Environment.PRODUCTION,
+        ):
+            raise ValueError("database_role_check must be 'enforce' in staging or production")
+        if (
+            self.rate_limit.trusted_proxy_hops > 0
+            and not self.rate_limit.trusted_proxy_cidrs
+            and self.environment in (Environment.STAGING, Environment.PRODUCTION)
+        ):
+            raise ValueError(
+                "rate_limit.trusted_proxy_cidrs is required when trusted_proxy_hops > 0 "
+                "in staging or production"
+            )
         if "*" in self.cors_origins:
             raise ValueError("cors_origins must list explicit origins (credentials are allowed)")
         if (

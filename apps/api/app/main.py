@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,7 +20,7 @@ from app.api.v1.endpoints.earth_observation.composition import build_earth_obser
 from app.api.v1.router import api_router
 from app.core.auth import AuthRuntime, build_auth_runtime
 from app.core.authz import AccessStore
-from app.core.config import Settings, get_settings
+from app.core.config import Environment, Settings, get_settings
 from app.core.exception_handlers import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import RequestContextMiddleware
@@ -28,8 +29,9 @@ from app.core.ratelimit import InMemoryRateLimiter, RateLimiter, RedisRateLimite
 from app.core.security_audit import SecurityAuditLog
 from app.core.security_middleware import BodySizeLimitMiddleware, SecurityHeadersMiddleware
 from app.db.access_store import SqlAccessStore
+from app.db.role_check import UnsafeDatabaseRoleError, inspect_application_role
 from app.db.security_audit_store import SqlSecurityAuditLog
-from app.db.session import dispose_engine, get_sessionmaker
+from app.db.session import dispose_engine, get_engine, get_sessionmaker
 
 
 @asynccontextmanager
@@ -39,13 +41,44 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("api_startup", environment=str(app.state.settings.environment))
     if not app.state.settings.auth.enabled:
         logger.warning("authentication_disabled", environment=str(app.state.settings.environment))
-    yield
-    if app.state.auth is not None:
-        await app.state.auth.aclose()
-    if app.state.redis_client is not None:
-        await app.state.redis_client.aclose()
-    await dispose_engine()
-    logger.info("api_shutdown")
+    try:
+        await _verify_database_role(app, logger)
+        rate = app.state.settings.rate_limit
+        if rate.enabled and rate.trusted_proxy_hops == 0 and app.state.settings.is_production:
+            # Behind a load balancer every client would share the balancer's address.
+            logger.warning("rate_limit_no_trusted_proxy", hint="set trusted_proxy_hops and cidrs")
+        yield
+    finally:  # also runs when startup validation refuses to serve
+        if app.state.auth is not None:
+            await app.state.auth.aclose()
+        if app.state.redis_client is not None:
+            await app.state.redis_client.aclose()
+        await dispose_engine()
+        logger.info("api_shutdown")
+
+
+async def _verify_database_role(app: FastAPI, logger: Any) -> None:
+    """Refuse to start on a database role that would bypass row-level security."""
+    settings: Settings = app.state.settings
+    if settings.database_url is None or app.state.access is None:
+        return  # no database: every authorization path already fails closed
+    strict = settings.database_role_check == "enforce"
+    production_like = settings.environment in (Environment.STAGING, Environment.PRODUCTION)
+    try:
+        report = await inspect_application_role(get_engine())
+    except Exception as exc:
+        if production_like:  # cannot prove the role is safe: do not serve traffic
+            raise UnsafeDatabaseRoleError("could not verify the database role") from exc
+        logger.warning("database_role_unverified", cause=str(exc))
+        return
+    if report.safe:
+        logger.info("database_role_verified", role=report.role)
+    elif strict:
+        raise UnsafeDatabaseRoleError(
+            f"unsafe database role {report.role!r}: " + "; ".join(report.problems)
+        )
+    else:
+        logger.warning("database_role_unsafe", role=report.role, problems=list(report.problems))
 
 
 def _default_access_store(settings: Settings) -> AccessStore | None:

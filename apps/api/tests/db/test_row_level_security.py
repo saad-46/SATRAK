@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async
 from app.core.security_audit import PRIVILEGED_DB_USED, InMemorySecurityAuditLog
 from app.db.privileged import privileged_session
 from app.db.rls import apply_context, tenant_session, worker_session
+from app.db.tenancy import GLOBAL_TABLES, TENANT_TABLES
 from tests.db.conftest import (
     ADMIN_ROLE,
     APP_ROLE,
@@ -29,22 +30,9 @@ pytestmark = [pytest.mark.integration, requires_database]
 
 INSUFFICIENT_PRIVILEGE = "42501"
 
-# Every table in the schema must be classified here. A new table that is in neither set fails
+
+# Classification lives in app.db.tenancy; a table in neither set fails
 # test_every_table_is_classified, forcing a decision (ADR-0011 decision 8).
-TENANT_TABLES = {"organization", "role_assignment"}
-GLOBAL_TABLES = {
-    "jurisdiction": "the hierarchy every tenant context is derived from",
-    "user_account": "identity, resolved before any jurisdiction context exists",
-    "role": "global role catalogue",
-    "permission": "global permission catalogue",
-    "role_permission": "global role-to-permission mapping",
-    "auth_session": "session registry keyed by user, no jurisdiction",
-    "audit_event": "global append-only security log (jurisdiction_id is optional, no FK)",
-    "alembic_version": "migration bookkeeping",
-    "spatial_ref_sys": "PostGIS extension table",
-}
-
-
 @dataclass
 class Fixture:
     admin: AsyncEngine
@@ -521,3 +509,44 @@ async def test_session_pruning_removes_only_long_expired_rows_and_is_audited(
     async with world.app.connect() as conn:  # the API role cannot prune
         state = await _sqlstate(conn.execute(text("DELETE FROM auth_session")))
         assert state == INSUFFICIENT_PRIVILEGE
+
+
+# --- Startup validation of the application role -----------------------------------------------
+async def test_the_application_role_passes_the_startup_check(world: Fixture) -> None:
+    from app.db.role_check import assert_safe_application_role
+
+    report = await assert_safe_application_role(world.app)
+    assert report.role == APP_ROLE and report.safe
+
+
+async def test_unsafe_roles_are_rejected_at_startup(world: Fixture, migrated_database: str) -> None:
+    from app.db.role_check import UnsafeDatabaseRoleError, assert_safe_application_role
+
+    # The maintenance role bypasses RLS and must never serve the API.
+    with pytest.raises(UnsafeDatabaseRoleError, match="BYPASSRLS"):
+        await assert_safe_application_role(world.admin)
+    # A table owner could disable RLS.
+    owner = create_async_engine(migrated_database)
+    try:
+        with pytest.raises(UnsafeDatabaseRoleError, match="owns tables"):
+            await assert_safe_application_role(owner)
+    finally:
+        await owner.dispose()
+
+
+async def test_a_jurisdiction_table_without_forced_rls_is_rejected(
+    world: Fixture, migrated_database: str
+) -> None:
+    from app.db.role_check import UnsafeDatabaseRoleError, assert_safe_application_role
+
+    owner = create_async_engine(migrated_database)
+    try:
+        async with owner.begin() as conn:
+            await conn.execute(text("CREATE TABLE leaky_tenant_data (jurisdiction_id uuid)"))
+            await conn.execute(text("GRANT SELECT ON leaky_tenant_data TO satrak_app"))
+        with pytest.raises(UnsafeDatabaseRoleError, match="leaky_tenant_data"):
+            await assert_safe_application_role(world.app)
+    finally:
+        async with owner.begin() as conn:
+            await conn.execute(text("DROP TABLE IF EXISTS leaky_tenant_data"))
+        await owner.dispose()

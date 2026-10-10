@@ -23,6 +23,7 @@ from fastapi import Depends, Request
 
 from app.core.config import Settings
 from app.core.exceptions import ServiceUnavailableError, TooManyRequestsError
+from app.core.metrics import metrics
 from app.core.ratelimit import (
     Decision,
     InMemoryRateLimiter,
@@ -45,7 +46,14 @@ def client_ip(request: Request) -> str:
         # Proxies may add their own header line instead of appending: join every line in order.
         ", ".join(request.headers.getlist("x-forwarded-for")) or None,
         settings.rate_limit.trusted_proxy_hops,
+        settings.rate_limit.trusted_networks,
     )
+
+
+def _record_degraded(policy: str, mode: str) -> None:
+    """Make degraded mode observable: alert on increase() of the counter or the marker age."""
+    metrics.increment("rate_limiter_unavailable_total", policy=policy, mode=mode)
+    metrics.mark("rate_limiter_degraded")
 
 
 def _rules(settings: Settings, policy: str, key: str) -> list[Rule]:
@@ -83,6 +91,7 @@ async def enforce(request: Request, policy: str, key: str, *, critical: bool = F
         decision = await limiter.hit(rules)
     except RateLimiterUnavailable as exc:
         logger.error("rate_limiter_unavailable", policy=policy, critical=critical, cause=str(exc))
+        _record_degraded(policy, "fail_closed" if critical else "local_fallback")
         if critical:
             raise ServiceUnavailableError(
                 "Request throttling is temporarily unavailable.",
@@ -90,6 +99,10 @@ async def enforce(request: Request, policy: str, key: str, *, critical: bool = F
                 headers={"Retry-After": str(_UNAVAILABLE_RETRY_SECONDS)},
             ) from exc
         decision = await fallback.hit(_fallback_rules(settings, rules))
+        metrics.increment(
+            "rate_limit_fallback_decisions_total",
+            outcome="allowed" if decision.allowed else "denied",
+        )
     if not decision.allowed:
         logger.info("rate_limited", policy=policy)
         raise TooManyRequestsError(decision.retry_after)
@@ -106,6 +119,7 @@ async def gate_source_ip(request: Request) -> None:
         remaining = await limiter.blocked_for(ip)
     except RateLimiterUnavailable as exc:
         logger.error("rate_limiter_unavailable", policy="block_check", cause=str(exc))
+        _record_degraded("block_check", "local_fallback")
         remaining = await fallback.blocked_for(ip)
     if remaining > 0:
         logger.info("rate_limited", policy="auth_failure_block")
@@ -133,6 +147,7 @@ async def note_auth_failure(request: Request) -> None:
         blocked = await limiter.record_failure(ip, **kwargs)
     except RateLimiterUnavailable as exc:
         logger.error("rate_limiter_unavailable", policy="auth_failure", cause=str(exc))
+        _record_degraded("auth_failure", "local_fallback")
         blocked = await fallback.record_failure(ip, **kwargs)
     if blocked:
         logger.warning("auth_failure_block", seconds=blocked)

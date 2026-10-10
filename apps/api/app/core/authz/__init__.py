@@ -16,6 +16,7 @@ from typing import Protocol
 
 from app.core.exceptions import ForbiddenError
 from app.core.security_audit import ACCESS_DENIED, SecurityEvent
+from app.shared.domain.scope import TenantScope
 
 
 class AccessDeniedError(ForbiddenError):
@@ -57,6 +58,11 @@ class AccessContext:
     user_id: uuid.UUID
     permission: str
     jurisdictions: frozenset[uuid.UUID]
+
+    @property
+    def scope(self) -> TenantScope:
+        """The repository scope for this caller: exactly the permitted jurisdictions."""
+        return TenantScope(self.jurisdictions)
 
     def denial(self, jurisdiction_id: uuid.UUID | None = None) -> AccessDeniedError:
         return AccessDeniedError(

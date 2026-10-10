@@ -86,3 +86,36 @@ Global tables are an explicit, reviewed allow-list with a stated reason in
 `tests/db/test_row_level_security.py`; a new table in neither list fails that test, so new business tables
 default to jurisdiction isolation. The PRD's tenant-less tables (`model_version`, `evidence_package`,
 `physical_asset`) are not created yet and must be classified when they are.
+
+## Hardening phase (owner approval 2026-10-10)
+
+- **Repository scope fails closed.** `SceneQuery` and the timeline port take a required `AccessScope`.
+  `TenantScope(ids)` matches only those jurisdictions (an empty set matches nothing); there is no default,
+  so omitting it is a type error. `AccessContext.scope` builds it from the caller's permitted jurisdictions.
+  The all-tenants `SystemScope(reason)` lives in `app.shared.domain.system_scope`, requires a non-empty
+  reason, logs each creation, and an import-linter contract keeps `app.api` and `app.main` from importing it.
+  Lookup by id still returns the aggregate; the endpoint authorizes it (403 contract).
+- **Startup role validation.** The API refuses to start (`database_role_check=enforce`, the default; `warn`
+  is rejected in staging and production) when its role is a superuser, has `BYPASSRLS`, inherits from such a
+  role, can create roles or databases, owns tables, or when a jurisdiction table lacks enabled and forced
+  RLS. In staging and production an unverifiable role also stops startup. Table classification lives in
+  `app.db.tenancy`.
+- **RLS verification.** `tests/db/test_row_level_security.py` runs as `satrak_app` and `satrak_admin` and covers
+  the persisted tenant tables (`organization`, `role_assignment`): default deny, scoped reads, `WITH CHECK`
+  on writes, forced RLS, pool-leak cases, policy coverage, role privileges, and the startup check.
+- **Limitation.** Earth Observation data is still in memory (`InMemorySceneRepository`, AOI repository), so
+  there are no persisted EO tables to put under RLS yet. Today EO isolation rests on `access.require`, the
+  endpoint filters and the fail-closed repository scope. When SQL repositories replace them they must run in
+  `tenant_session`, and new tables must be classified in `app.db.tenancy`.
+
+### Hardening phase: known limits
+
+- The startup role check inspects the `public` schema and only tables that have a
+  `jurisdiction_id` column; tenant tables elsewhere would need the check extended.
+- Earth Observation data is in memory today, so no persisted EO table exists to put under RLS;
+  isolation there is enforced by the required repository `AccessScope`. Moving EO to PostgreSQL
+  must add its tables to `TENANT_TABLES` with policies (the coverage test fails otherwise).
+- By-id repository methods (`get`, `list`, `get_by_provider_scene_id`) are not scoped; endpoints
+  must call `access.require` on the result (the 403 contract). Collection reads are scoped.
+- The deployment must ensure only the trusted proxy can reach the API port; `X-Forwarded-For`
+  is honoured only from `trusted_proxy_cidrs`.

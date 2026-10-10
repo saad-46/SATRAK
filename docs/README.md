@@ -25,6 +25,10 @@ ADRs rather than by editing their history.
 | [ADR-0008](adr/0008-celery-behind-taskqueue-port-for-eo-jobs.md)               | Celery (beat + chains) behind the TaskQueue port for EO jobs               |
 | [ADR-0009](adr/0009-coarse-public-integration-events-for-earth-observation.md) | Coarse public integration events for Earth Observation                     |
 | [ADR-0010](adr/0010-context-naming-review-earth-observation-vs-satellite.md)   | Context naming review: `earth_observation` affirmed, drone scope corrected |
+| [ADR-0011](adr/0011-tenancy-jurisdiction-rows-with-rls.md)                     | Tenancy: jurisdiction rows + RLS (exception to PRD §3.3.2 default)         |
+| [ADR-0012](adr/0012-canonical-geospatial-storage-and-crs-roles.md)             | Canonical geospatial storage and CRS roles                                 |
+| [ADR-0013](adr/0013-authentication-token-validation-and-revocation.md)         | Authentication: OIDC validation and revocation (proposed)                  |
+| [ADR-0014](adr/0014-officer-verification-gate-for-ai-findings.md)              | Officer verification gate for AI findings                                  |
 
 Contributor and release process docs live in
 [CONTRIBUTING.md](../CONTRIBUTING.md), [onboarding/](onboarding/), and

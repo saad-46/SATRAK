@@ -129,3 +129,43 @@ name = "Core infrastructure does not depend on API or contexts"
 type = "forbidden"
 source_modules = ["app.core"]
 forbidden_modules = ["app.api", "app.contexts", "app.main"]
+
+# Bounded contexts never import each other (ARCHITECTURE.md: "they collaborate via
+# ids + domain events, not direct references"). This enforces that rule — including the
+# ADR-0010 requirement that Earth Observation and Drone stay independent, communicating
+# only through public interfaces and integration events. Add new contexts here as they
+# are created.
+# The Earth Observation domain layer stays pure: it may depend on the shared kernel
+# and its own domain, but never on its application/infrastructure/interfaces layers
+# (Clean Architecture — dependencies point inward). Locked in before the API layer is
+# added so the boundary can't silently erode. Generalize to other contexts as they
+# grow their own layered structure.
+[[tool.importlinter.contracts]]
+name = "Earth Observation domain layer stays pure"
+type = "forbidden"
+source_modules = ["app.contexts.earth_observation.domain"]
+forbidden_modules = [
+    "app.contexts.earth_observation.application",
+    "app.contexts.earth_observation.infrastructure",
+    "app.contexts.earth_observation.interfaces",
+]
+
+[[tool.importlinter.contracts]]
+name = "Bounded contexts are mutually independent"
+type = "independence"
+modules = [
+    "app.contexts.core",
+    "app.contexts.identity",
+    "app.contexts.organization",
+    "app.contexts.earth_observation",
+    "app.contexts.drone",
+    "app.contexts.gis",
+    "app.contexts.property",
+    "app.contexts.permit",
+    "app.contexts.inspection",
+    "app.contexts.compliance",
+    "app.contexts.analytics",
+    "app.contexts.reporting",
+    "app.contexts.administration",
+    "app.contexts.notification",
+]

@@ -11,6 +11,7 @@ newest-acquisition-first.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 
 from app.contexts.earth_observation.domain.aggregates.aoi import AreaOfInterest
 from app.contexts.earth_observation.domain.aggregates.scene import Scene
@@ -19,6 +20,7 @@ from app.contexts.earth_observation.domain.value_objects.scene_id import Provide
 from app.shared.domain.enums import EntityStatus
 from app.shared.domain.identifiers import EntityId
 from app.shared.persistence.repository import InMemoryRepository
+from app.shared.value_objects.geo import BoundingBox
 from app.shared.value_objects.ranges import TimeRange
 
 
@@ -34,7 +36,7 @@ def _matches(scene: Scene, query: SceneQuery) -> bool:
         return False
     if query.window is not None and not _in_window(acq.acquired_at, query.window):
         return False
-    if query.area is not None and not _bbox_intersects(scene, query):
+    if query.area is not None and not _bbox_intersects(scene, query.area):
         return False
     if query.max_cloud_cover_pct is not None:
         cloud = acq.cloud_cover
@@ -43,17 +45,12 @@ def _matches(scene: Scene, query: SceneQuery) -> bool:
     return True
 
 
-def _in_window(moment: object, window: TimeRange) -> bool:
-    from datetime import datetime
-
-    assert isinstance(moment, datetime)
+def _in_window(moment: datetime, window: TimeRange) -> bool:
     return window.contains(moment)
 
 
-def _bbox_intersects(scene: Scene, query: SceneQuery) -> bool:
+def _bbox_intersects(scene: Scene, area: BoundingBox) -> bool:
     box = scene.bounding_box
-    area = query.area
-    assert area is not None
     if area.srid != box.srid:
         return False
     return not (

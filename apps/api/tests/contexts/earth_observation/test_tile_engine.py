@@ -232,6 +232,24 @@ async def test_tiling_is_deterministic_across_runs() -> None:
     assert await run_once() == await run_once()
 
 
+async def test_tiling_rejects_processed_scene_without_pipeline_version() -> None:
+    scenes = InMemorySceneRepository()
+    scene = _processed_scene()
+    scene.pipeline_version = None  # inconsistent persisted state; must fail with a domain error
+    await scenes.add(scene)
+    service = TilingService(
+        scenes=scenes,
+        uow=InMemoryUnitOfWork(),
+        loader=_SceneLoader(_scene_raster()),
+        storage=InMemoryStorageProvider(),
+        keys=StorageKeyStrategy(),
+        encoder=RawFloat32Encoder(),
+        pyramid=PyramidSpec(min_zoom=1, max_zoom=1),
+    )
+    with pytest.raises(TilingError, match="pipeline_version"):
+        await service.generate(scene_id=scene.id)
+
+
 async def test_tiling_requires_processed_scene() -> None:
     scenes = InMemorySceneRepository()
     scene = make_scene()

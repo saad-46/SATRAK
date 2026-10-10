@@ -174,8 +174,10 @@ class Scene(AggregateRoot):
         if quality is not None:
             self.quality = quality
         self._transition(SceneStatus.PROCESSED, actor=actor)
-        # pipeline_version is guaranteed set (invariant) — assert for the type checker.
-        assert self.pipeline_version is not None
+        # pipeline_version is set by start_preprocessing/reprocess; guard explicitly so the
+        # check survives ``python -O`` and narrows the type for the event payload.
+        if self.pipeline_version is None:
+            raise InvariantViolation("cannot mark processed without a pipeline_version")
         self.record_event(
             SceneProcessed(
                 aggregate_id=self.id,

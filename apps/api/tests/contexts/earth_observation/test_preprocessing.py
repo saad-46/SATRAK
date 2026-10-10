@@ -238,3 +238,43 @@ def test_missing_hooks_fail_at_construction() -> None:
             spec=_spec(PipelineStep.THUMBNAIL),
             loader=_Loader(_dataset()),
         )
+
+
+@pytest.mark.parametrize(
+    ("step", "attr", "needle"),
+    [
+        (PipelineStep.CLOUD_MASK, "_cloud_masker", "CloudMasker"),
+        (PipelineStep.THUMBNAIL, "_thumbnailer", "ThumbnailRenderer"),
+    ],
+)
+async def test_hook_removed_after_construction_fails_with_domain_error(
+    step: PipelineStep, attr: str, needle: str
+) -> None:
+    scenes = InMemorySceneRepository()
+    scene = _registered_scene()
+    await scenes.add(scene)
+    service = PreprocessingService(
+        scenes=scenes,
+        uow=InMemoryUnitOfWork(),
+        spec=_spec(step),
+        loader=_Loader(_dataset()),
+        cloud_masker=_Masker(),
+        thumbnailer=_Thumbnailer(),
+    )
+    setattr(service, attr, None)  # wiring drift after construction must not rely on `assert`
+    with pytest.raises(PreprocessingError, match=needle):
+        await service.preprocess(scene_id=scene.id)
+    assert scene.status is SceneStatus.FAILED
+
+
+async def test_band_selection_without_indexes_fails_with_domain_error() -> None:
+    scenes = InMemorySceneRepository()
+    scene = _registered_scene()
+    await scenes.add(scene)
+    spec = _spec(PipelineStep.BAND_SELECTION, bands=(0,))
+    object.__setattr__(spec, "band_selection", None)  # bypass the frozen VO validation
+    service = PreprocessingService(
+        scenes=scenes, uow=InMemoryUnitOfWork(), spec=spec, loader=_Loader(_dataset())
+    )
+    with pytest.raises(PreprocessingError, match="band_selection"):
+        await service.preprocess(scene_id=scene.id)

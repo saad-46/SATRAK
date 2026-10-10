@@ -132,14 +132,17 @@ class PreprocessingService:
         thumbnail_uri: str | None = None
         for step in self._spec.steps:
             if step is PipelineStep.CLOUD_MASK:
-                assert self._cloud_masker is not None  # guaranteed by _require_hooks
+                if self._cloud_masker is None:
+                    raise HookNotConfiguredError("cloud_mask step has no CloudMasker wired")
                 dataset = await self._cloud_masker.apply(dataset, scene=scene)
             elif step is PipelineStep.BAND_SELECTION:
-                assert self._spec.band_selection is not None  # guaranteed by the spec VO
+                if not self._spec.band_selection:
+                    raise PreprocessingError("band_selection step has no band indexes")
                 dataset = select_bands(dataset, bands=self._spec.band_selection)
             elif step is PipelineStep.NORMALIZE:
                 dataset = minmax_normalize(dataset)
             else:  # PipelineStep.THUMBNAIL
-                assert self._thumbnailer is not None  # guaranteed by _require_hooks
+                if self._thumbnailer is None:
+                    raise HookNotConfiguredError("thumbnail step has no ThumbnailRenderer wired")
                 thumbnail_uri = await self._thumbnailer.render(dataset, scene=scene)
         return thumbnail_uri

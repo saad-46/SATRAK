@@ -108,9 +108,11 @@ class TilingService:
         scene = await self._scenes.require(scene_id)
         if scene.status is not SceneStatus.PROCESSED:
             raise TilingError(f"scene {scene_id} is {scene.status}, expected PROCESSED")
-        # PROCESSED guarantees a pipeline_version (aggregate invariant).
-        assert scene.pipeline_version is not None
+        # PROCESSED implies a pipeline_version (aggregate invariant), but the scene may come
+        # from storage: fail with a domain error rather than tile under an unknown version.
         version = scene.pipeline_version
+        if version is None:
+            raise TilingError(f"scene {scene_id} is PROCESSED but has no pipeline_version")
 
         dataset = await self._loader.load(scene)
         records: list[TileRecord] = []

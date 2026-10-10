@@ -201,6 +201,17 @@ def test_processed_state_requires_pipeline_version_invariant() -> None:
         )
 
 
+def test_mark_processed_without_pipeline_version_raises_explicitly() -> None:
+    scene = _make_scene()
+    scene.mark_downloaded(checksum_sha256="ab" * 32)
+    scene.mark_validated()
+    scene.register()
+    scene.start_preprocessing(pipeline_version="1.0.0")
+    scene.pipeline_version = None  # simulate inconsistent state; must not rely on `assert`
+    with pytest.raises(InvariantViolation):
+        scene.mark_processed()
+
+
 def test_rejected_state_requires_reason_invariant() -> None:
     with pytest.raises(InvariantViolation):
         Scene(

@@ -78,7 +78,10 @@ disallow_untyped_decorators = false
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "-ra --cov=app --cov-report=term-missing"
+addopts = "-ra --strict-markers --cov=app --cov-report=term-missing"
+markers = [
+    "integration: needs a real PostgreSQL/PostGIS (SATRAK_TEST_DATABASE_URL) and optionally Redis (SATRAK_TEST_REDIS_URL)",
+]
 
 [tool.coverage.run]
 source = ["app"]

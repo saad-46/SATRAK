@@ -194,6 +194,20 @@ class Settings(BaseSettings):
         return self.feature_flags.get(flag, False)
 
 
+class DatabaseUrlSettings(BaseSettings):
+    """Just the database URL, for tooling (Alembic) that must not need auth configuration."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="SATRAK_API_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        case_sensitive=False,
+    )
+
+    database_url: PostgresDsn | None = None
+
+
 @lru_cache
 def get_settings() -> Settings:
     """Return a cached Settings instance (single source of truth per process)."""

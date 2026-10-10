@@ -194,7 +194,8 @@ async def test_admin_routes_have_a_tight_budget(env: Env) -> None:
         ).status_code
         for _ in range(3)
     ]
-    assert statuses[:2] == [403, 403] and statuses[2] == 429  # 403 = reached the handler
+    # The first two reach the handler (a national admin may revoke any id); the third is limited.
+    assert statuses[:2] == [204, 204] and statuses[2] == 429
 
 
 async def test_expensive_operations_enforce_per_minute_and_per_hour_budgets(idp: TestIdp) -> None:

@@ -89,6 +89,10 @@ _REVOKE_USER = text(
     WHERE id = :user_id AND NOT is_deleted
     """
 )
+_COVERS_NATIONAL = text(
+    "SELECT EXISTS (SELECT 1 FROM jurisdiction "
+    "WHERE id = ANY(:ids) AND level = 'national' AND NOT is_deleted)"
+)
 _ASSIGNMENT_JURISDICTIONS = text(
     """
     SELECT DISTINCT jurisdiction_id FROM role_assignment
@@ -189,3 +193,10 @@ class SqlAccessStore:
             await apply_context(session, user_id=None, jurisdiction_ids=within)
             rows = await session.execute(_ASSIGNMENT_JURISDICTIONS, {"user_id": user_id})
             return frozenset(row.jurisdiction_id for row in rows)
+
+    async def covers_national(self, *, within: frozenset[uuid.UUID]) -> bool:
+        if not within:
+            return False
+        async with self._sessionmaker()() as session, session.begin():
+            row = await session.execute(_COVERS_NATIONAL, {"ids": list(within)})
+            return bool(row.scalar_one())

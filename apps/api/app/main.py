@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from redis.asyncio import Redis
+from redis.asyncio import BlockingConnectionPool, Redis
 
 from app.api.v1.endpoints.earth_observation.composition import build_earth_observation_api
 from app.api.v1.router import api_router
@@ -69,12 +69,15 @@ def _default_rate_limiter(settings: Settings) -> tuple[RateLimiter | None, Redis
         # settings validation requires Redis, since per-process state is not enough).
         get_logger("api.lifecycle").warning("rate_limiter_process_local")
         return InMemoryRateLimiter(), None
-    client = Redis.from_url(
+    pool = BlockingConnectionPool.from_url(
         str(settings.redis_url),
+        max_connections=settings.rate_limit.redis_max_connections,
+        timeout=1.0,  # wait briefly for a free connection instead of failing at the cap
         socket_timeout=1.0,
         socket_connect_timeout=1.0,
         decode_responses=False,
     )
+    client = Redis.from_pool(pool)
     return RedisRateLimiter(client), client
 
 

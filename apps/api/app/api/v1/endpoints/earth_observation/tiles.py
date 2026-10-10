@@ -28,7 +28,7 @@ router = APIRouter(tags=["earth-observation: tiles"])
 
 _TMS = TileMatrixSetRef.web_mercator_quad()
 _TILE_EXTENSION = "bin"
-_CACHE_CONTROL = "public, max-age=3600"
+_CACHE_CONTROL = "private, max-age=3600"  # tenant imagery: never in shared caches
 
 
 async def _resolve_version(

@@ -63,6 +63,7 @@ async def env(settings: Settings, idp: TestIdp) -> AsyncIterator[Env]:
     users: dict[str, uuid.UUID] = {}
     for subject, role, where in (
         ("admin-s1", admin_role, s1),
+        ("admin-national", admin_role, nat),
         ("officer-s1", plain_role, s1),
         ("officer-s2", plain_role, s2),
         ("plain", plain_role, s1),
@@ -191,6 +192,17 @@ async def test_only_session_admins_in_scope_may_revoke(env: Env) -> None:
     assert (await env.client.post(path("officer-s1"), json=body)).status_code == 401
     # Nothing was revoked by the failed attempts.
     assert env.world.store.revoked_before == {}
+
+
+async def test_national_admin_can_revoke_an_account_with_no_assignment(env: Env) -> None:
+    response = await env.client.post(
+        f"/api/v1/admin/users/{env.users['unassigned']}/revoke-sessions",
+        json={"reason": "offboarded"},
+        headers=env.token("admin-national"),
+    )
+    assert response.status_code == 204
+    assert env.users["unassigned"] in env.world.store.revoked_before
+    assert env.world.audit.of_type("session.revoked")
 
 
 async def test_revocation_requires_a_reason(env: Env) -> None:

@@ -70,3 +70,32 @@ audited (a restrictive action is not blocked by an audit outage; the failure is 
 
 Actual IdP, issuer and audience; claim-name mapping, if any; whether the IdP exposes `sid`; whether
 refresh tokens are held by the SPA/BFF; MFA enforcement location; service-account model.
+
+## Review decisions (owner, 2026-10-10)
+
+- **Redis failure.** Login/auth-entry and expensive operations fail closed (503, `Retry-After: 5`) when
+  distributed enforcement is unavailable. Ordinary API traffic falls back to a strict, configurable
+  per-process budget (`rate_limit.fallback_per_minute`). That fallback is **not** distributed enforcement:
+  each instance counts alone, so the effective ceiling is multiplied by the instance count. Degraded mode
+  is observable through the error log event `rate_limiter_unavailable` (alert on it); no metric exists yet.
+- **Limits.** Approved: 120/min/user API, 30/min/user EO search, 5/min and 30/h per user expensive,
+  10/min/user admin/bulk, 10/min/IP auth entry. Tiles start at 120/min/user (`tiles_user`). The separate IP
+  abuse ceiling (`api_ip`, currently 600/min) is configurable but is an engineering placeholder.
+  Limiter-level load test (real Redis, 8 simulated instances, 5,000 concurrent calls against a 120/min rule)
+  admitted exactly 120; 200 users x 130 calls admitted exactly 120 each. Not a full-stack HTTP load test.
+- **Unauthorized vs foreign.** 401 unauthenticated and 403 cross-jurisdiction remain the acceptance
+  contract. Nonexistent ids return 404, so id existence can be probed; ids are random UUIDs, which limits
+  this. A uniform-404 policy for specific endpoints would be an explicit contract change and needs approval.
+- **IdP.** Issuer, audience(s), JWKS URL and algorithms come only from deployment configuration; nothing is
+  assumed. Production configuration is still missing. `sid` is optional: without it the `jti` identifies the
+  session.
+- **Revocation.** SATRAK is a relying party and issues no tokens. It invalidates the tokens it accepts by
+  (a) the per-user `revoked_before` instant compared with token `iat`, and (b) the per-session registry,
+  both read from PostgreSQL on every request, so revocation applies on the next request on every instance
+  (well inside 60 s). Revocation does not depend on a role assignment: an administrator with
+  `session:revoke` at a jurisdiction can revoke users assigned there, and one holding it at **national**
+  scope can also revoke accounts with no assignment. The IdP must also end its own session, or the user can
+  sign in again.
+- **Session pruning.** `auth_session` rows are pruned by `app.db.maintenance.prune_auth_sessions` through the
+  audited privileged role, `session_retention_days` after token expiry (default 30, minimum 1). The number
+  is a placeholder: **the records-retention policy needs confirmation**. `audit_event` is never pruned.

@@ -261,3 +261,11 @@ async def test_assignment_jurisdictions_lists_only_live_assignments(world: World
     assert await world.store.assignment_jurisdictions(user_id=user, within=elsewhere) == frozenset()
     unknown = await world.store.assignment_jurisdictions(user_id=uuid.uuid4(), within=everything)
     assert unknown == frozenset()
+
+
+async def test_covers_national_only_for_a_live_root(world: World) -> None:
+    t = await _tree(world)
+    store = world.store
+    assert await store.covers_national(within=frozenset({t["nat"]})) is True
+    assert await store.covers_national(within=frozenset({t["c1"]})) is False
+    assert await store.covers_national(within=frozenset()) is False

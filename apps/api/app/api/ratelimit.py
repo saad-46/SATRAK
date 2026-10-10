@@ -41,7 +41,10 @@ def client_ip(request: Request) -> str:
     settings = cast(Settings, request.app.state.settings)
     peer = request.client.host if request.client else None
     return resolve_client_ip(
-        peer, request.headers.get("x-forwarded-for"), settings.rate_limit.trusted_proxy_hops
+        peer,
+        # Proxies may add their own header line instead of appending: join every line in order.
+        ", ".join(request.headers.getlist("x-forwarded-for")) or None,
+        settings.rate_limit.trusted_proxy_hops,
     )
 
 

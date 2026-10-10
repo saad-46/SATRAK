@@ -213,17 +213,33 @@ class InMemoryRateLimiter:
 
 
 # --- Client address ----------------------------------------------------------------------------
+def _normalise(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> str:
+    """IPv6 clients are keyed by /64 (one subscriber), so rotating host bits cannot evade limits."""
+    if isinstance(address, ipaddress.IPv6Address):
+        if address.ipv4_mapped is not None:
+            return str(address.ipv4_mapped)
+        return str(ipaddress.ip_network((address, 64), strict=False))
+    return str(address)
+
+
+def _normalise_text(value: str) -> str:
+    try:
+        return _normalise(ipaddress.ip_address(value))
+    except ValueError:
+        return value
+
+
 def resolve_client_ip(peer: str | None, forwarded_for: str | None, trusted_hops: int) -> str:
     """The caller's address. ``X-Forwarded-For`` is honoured only behind ``trusted_hops``
     reverse proxies, and then only the entry those proxies appended (counted from the right):
     anything a client put further left is ignored."""
-    fallback = peer or "unknown"
+    fallback = _normalise_text(peer) if peer else "unknown"
     if trusted_hops <= 0 or not forwarded_for:
         return fallback
     parts = [p.strip() for p in forwarded_for.split(",") if p.strip()]
     if len(parts) < trusted_hops:
         return fallback
     try:
-        return str(ipaddress.ip_address(parts[-trusted_hops]))
+        return _normalise(ipaddress.ip_address(parts[-trusted_hops]))
     except ValueError:
         return fallback

@@ -3,8 +3,9 @@
 Revocations take effect on the target's very next request, on every instance, because the
 authoritative state is read from the shared store per request. Every revocation is audited
 (``session.revoked``). Administrative revocation requires ``session:revoke`` in a
-jurisdiction where the target user holds an assignment; targets with no assignment cannot
-be revoked this way (default deny) and must be revoked at the identity provider.
+jurisdiction where the target user holds an assignment, or at national scope (which also
+covers accounts with no assignment). Revocation changes SATRAK's own state only; the identity
+provider must also end the user's sessions so they cannot simply sign in again.
 """
 
 from __future__ import annotations
@@ -115,14 +116,21 @@ async def logout(
 
 
 async def _require_scope(ctx: AccessContext, store: AccessStoreDep, target: uuid.UUID) -> None:
-    """The caller's permission must cover a jurisdiction the target is assigned to."""
+    """The caller's permission must cover a jurisdiction the target is assigned to.
+
+    A caller holding the permission at *national* scope may also revoke accounts that have no
+    assignment (for example pending or fully de-provisioned users), so revocation never
+    depends on a role assignment existing. Narrower administrators cannot, because nothing
+    ties such an account to their jurisdiction.
+    """
     try:
         theirs = await store.assignment_jurisdictions(user_id=target, within=ctx.jurisdictions)
+        platform_wide = not theirs and await store.covers_national(within=ctx.jurisdictions)
     except Exception as exc:
         raise ServiceUnavailableError(
             "Authorization is temporarily unavailable.", code="authz_unavailable"
         ) from exc
-    if not theirs:
+    if not theirs and not platform_wide:
         raise ctx.denial()
 
 

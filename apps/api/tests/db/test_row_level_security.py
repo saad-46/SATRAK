@@ -463,3 +463,61 @@ def test_the_web_layer_never_imports_the_privileged_module() -> None:
 
 def test_database_url_is_configured_for_this_module() -> None:
     assert DATABASE_URL is not None
+
+
+# --- Fixtures really run as the intended roles ------------------------------------------------
+async def test_test_engines_run_as_the_intended_database_roles(world: Fixture) -> None:
+    for engine, expected in ((world.app, APP_ROLE), (world.admin, ADMIN_ROLE)):
+        for _ in range(3):  # repeated checkouts: a lost SET ROLE would show up as the owner
+            async with engine.connect() as conn:
+                user = (await conn.execute(text("SELECT current_user"))).scalar_one()
+                assert user == expected
+
+
+async def test_the_access_store_reads_through_the_application_role(world: Fixture) -> None:
+    sessions = _sessions(world.app)
+    async with sessions()() as session, session.begin():
+        assert (await session.execute(text("SELECT current_user"))).scalar_one() == APP_ROLE
+
+
+# --- Session pruning ---------------------------------------------------------------------------
+async def test_session_pruning_removes_only_long_expired_rows_and_is_audited(
+    world: Fixture,
+) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from app.db.maintenance import prune_auth_sessions
+
+    now = datetime(2026, 10, 10, 12, tzinfo=UTC)
+    async with world.admin.begin() as conn:
+        for key, expires in (
+            ("old", now - timedelta(days=40)),
+            ("recent", now - timedelta(days=5)),
+            ("live", now + timedelta(minutes=10)),
+        ):
+            await conn.execute(
+                text(
+                    "INSERT INTO auth_session "
+                    "(issuer, session_key, user_id, expires_at, revoked_at) "
+                    "VALUES ('https://i.invalid', :k, :u, :e, :e)"
+                ),
+                {"k": key, "u": world.users["alice"], "e": expires},
+            )
+    audit = InMemorySecurityAuditLog()
+    removed = await prune_auth_sessions(
+        _sessions(world.admin), audit=audit, operator="job", now=now, retention_days=30
+    )
+    assert removed == 1
+    assert len(audit.of_type(PRIVILEGED_DB_USED)) == 1
+    async with world.admin.connect() as conn:
+        left = {
+            r.session_key for r in await conn.execute(text("SELECT session_key FROM auth_session"))
+        }
+    assert left == {"recent", "live"}
+    with pytest.raises(ValueError):
+        await prune_auth_sessions(
+            _sessions(world.admin), audit=audit, operator="job", now=now, retention_days=0
+        )
+    async with world.app.connect() as conn:  # the API role cannot prune
+        state = await _sqlstate(conn.execute(text("DELETE FROM auth_session")))
+        assert state == INSUFFICIENT_PRIVILEGE

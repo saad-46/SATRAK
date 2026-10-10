@@ -78,3 +78,11 @@ mechanism, not an edit of the PRD. A PRD change request should reference this AD
 - **Test finding:** pooled connections must not lose a `SET ROLE` on rollback-on-return; the test
   helper commits it. Production uses a login role, so this affects test infrastructure only.
 - Still open: classification of the PRD's tenant-less tables and cross-tenant analytics.
+
+## Table classification policy (owner decision 2026-10-10)
+
+Every table is either **jurisdiction-owned** (non-null `jurisdiction_id`, forced RLS) or **system-global**.
+Global tables are an explicit, reviewed allow-list with a stated reason in
+`tests/db/test_row_level_security.py`; a new table in neither list fails that test, so new business tables
+default to jurisdiction isolation. The PRD's tenant-less tables (`model_version`, `evidence_package`,
+`physical_asset`) are not created yet and must be classified when they are.

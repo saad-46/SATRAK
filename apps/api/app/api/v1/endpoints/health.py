@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import structlog
 from fastapi import APIRouter, Response
 from sqlalchemy import text
 
@@ -25,6 +26,9 @@ async def liveness() -> HealthStatus:
     return HealthStatus(status="ok")
 
 
+logger = structlog.get_logger("api.health")
+
+
 async def _check_database() -> DependencyStatus:
     try:
         engine = get_engine()
@@ -32,7 +36,8 @@ async def _check_database() -> DependencyStatus:
             await conn.execute(text("SELECT 1"))
         return DependencyStatus(name="database", healthy=True)
     except Exception as exc:
-        return DependencyStatus(name="database", healthy=False, detail=str(exc))
+        logger.warning("readiness_check_failed", dependency="database", cause=str(exc))
+        return DependencyStatus(name="database", healthy=False, detail="unavailable")
 
 
 async def _check_redis(settings: SettingsDep) -> DependencyStatus:
@@ -49,7 +54,8 @@ async def _check_redis(settings: SettingsDep) -> DependencyStatus:
             await client.aclose()
         return DependencyStatus(name="redis", healthy=True)
     except Exception as exc:
-        return DependencyStatus(name="redis", healthy=False, detail=str(exc))
+        logger.warning("readiness_check_failed", dependency="redis", cause=str(exc))
+        return DependencyStatus(name="redis", healthy=False, detail="unavailable")
 
 
 @router.get("/ready", response_model=ReadinessStatus, summary="Readiness probe")

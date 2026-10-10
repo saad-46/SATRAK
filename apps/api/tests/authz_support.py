@@ -169,6 +169,11 @@ class InMemoryAccessStore:
             if a.user == user_id and not a.revoked and a.jurisdiction in within
         )
 
+    async def covers_national(self, *, within: frozenset[uuid.UUID]) -> bool:
+        return any(
+            self.parents.get(j, 0) is None and j not in self.deleted_jurisdictions for j in within
+        )
+
 
 class MemoryWorld:
     def __init__(self) -> None:

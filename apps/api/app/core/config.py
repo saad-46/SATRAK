@@ -79,6 +79,10 @@ class AuthSettings(BaseSettings):
     jwks_min_refresh_interval_seconds: int = Field(default=30, ge=1)
     jwks_fetch_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
     max_token_bytes: int = Field(default=8192, ge=256, le=65536)
+    # How long after a session's token expired its registry row is kept before pruning. The row
+    # is needed only until the token expires (a revoked token must stay refused); the value is an
+    # engineering placeholder, NOT a legal retention period: confirm against the records policy.
+    session_retention_days: int = Field(default=30, ge=1, le=3650)
 
     @field_validator("audiences", "allowed_algorithms", mode="before")
     @classmethod
@@ -132,10 +136,11 @@ DEFAULT_RATE_POLICIES: dict[str, list[RatePolicySpec]] = {
         RatePolicySpec(limit=30, window_seconds=3600),
     ],
     "admin_user": [RatePolicySpec(limit=10, window_seconds=60)],
-    # PROPOSED: not in the approved table. A per-IP ceiling for authenticated traffic and a
-    # separate tile budget (a map view fetches dozens of tiles at once).
+    # Owner decision 2026-10-10: tiles start at 120/min/user, configurable separately. The IP
+    # abuse ceiling is separately configurable; its value is an engineering placeholder to be
+    # validated by load and abuse testing, not an owner-approved figure.
     "api_ip": [RatePolicySpec(limit=600, window_seconds=60)],
-    "tiles_user": [RatePolicySpec(limit=600, window_seconds=60)],
+    "tiles_user": [RatePolicySpec(limit=120, window_seconds=60)],
 }
 
 
@@ -162,6 +167,8 @@ class RateLimitSettings(BaseSettings):
     # Process-local budget (requests per minute per key) used for *ordinary* requests while
     # Redis is unavailable. Auth and expensive operations fail closed instead (503).
     fallback_per_minute: int = Field(default=60, gt=0)
+    # Connections the limiter may open per process; callers queue (up to 1 s) beyond this.
+    redis_max_connections: int = Field(default=100, ge=1, le=10000)
 
     @model_validator(mode="after")
     def _known_policies_only(self) -> RateLimitSettings:

@@ -31,3 +31,11 @@ No finding or case aggregate exists yet. The access-control sprint supplies the 
 (authenticated officers, jurisdiction-scoped permissions including `finding:verify`, durable audit,
 append-only history pattern). The gate itself and its tests are acceptance criteria of the first
 epic that introduces findings.
+
+## Implementation note (access-control sprint)
+
+No finding or case aggregate exists yet, so there is no verify endpoint to protect. The authorization half
+is in place: `app.core.authz.verification.authorize_verification(ctx, finding_jurisdiction_id)` requires a
+context for `finding:verify` **and** that permission in the finding's own jurisdiction. A role alone never
+grants global verification. The future verify endpoint must call it and enforce the state transition in the
+domain/database as described above.

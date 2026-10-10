@@ -137,3 +137,7 @@ class AccessStore(Protocol):
     ) -> frozenset[uuid.UUID]:
         """Jurisdictions, among ``within``, of the user's non-revoked assignments."""
         ...
+
+    async def covers_national(self, *, within: frozenset[uuid.UUID]) -> bool:
+        """True when ``within`` contains a national-level (root) jurisdiction."""
+        ...

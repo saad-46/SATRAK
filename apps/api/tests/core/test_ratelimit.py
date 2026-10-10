@@ -176,9 +176,17 @@ async def test_unreachable_redis_raises_instead_of_allowing() -> None:
         ("10.0.0.9", "6.6.6.6, 1.2.3.4, 10.1.1.1", 2, "1.2.3.4"),
         ("10.0.0.9", "1.2.3.4", 2, "10.0.0.9"),  # fewer entries than trusted hops: distrust
         ("10.0.0.9", "not-an-ip", 1, "10.0.0.9"),
-        ("10.0.0.9", "2001:db8::1", 1, "2001:db8::1"),
+        ("10.0.0.9", "2001:db8::1", 1, "2001:db8::/64"),
         (None, None, 0, "unknown"),
     ],
 )
 def test_client_ip_resolution(peer: str | None, xff: str | None, hops: int, expected: str) -> None:
     assert resolve_client_ip(peer, xff, hops) == expected
+
+
+def test_ipv6_clients_are_keyed_by_subscriber_prefix() -> None:
+    a = resolve_client_ip("2001:db8:1:2:aaaa::1", None, 0)
+    b = resolve_client_ip("2001:db8:1:2:bbbb::9", None, 0)
+    assert a == b == "2001:db8:1:2::/64"
+    assert resolve_client_ip("::ffff:203.0.113.5", None, 0) == "203.0.113.5"
+    assert resolve_client_ip("203.0.113.5", "2001:db8:1:2:1::1", 1) == "2001:db8:1:2::/64"

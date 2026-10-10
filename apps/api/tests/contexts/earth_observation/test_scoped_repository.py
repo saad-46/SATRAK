@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import pathlib
 import uuid
+from typing import Any
 
 import pytest
 
@@ -28,10 +29,12 @@ def _aoi(jurisdiction: uuid.UUID) -> AreaOfInterest:
 
 
 def test_a_scope_is_mandatory_and_must_be_an_access_scope() -> None:
+    # Called through Any: these are deliberately invalid calls that the types already forbid.
+    untyped: Any = ScopedRepository
     with pytest.raises(TypeError):
-        ScopedRepository(InMemoryAoiRepository())  # type: ignore[call-arg]
+        untyped(InMemoryAoiRepository())
     with pytest.raises(TypeError):
-        ScopedRepository(InMemoryAoiRepository(), None)  # type: ignore[arg-type]
+        untyped(InMemoryAoiRepository(), None)
 
 
 async def test_get_missing_is_none_and_foreign_raises_out_of_scope() -> None:

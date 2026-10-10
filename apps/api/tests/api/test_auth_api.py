@@ -196,6 +196,7 @@ async def test_docs_are_not_exposed_in_production() -> None:
         environment=Environment.PRODUCTION,
         log_format="console",
         auth=auth_settings(),
+        redis_url="redis://localhost:6379/0",  # required in production (rate limiting)
     )
     app = create_app(prod, auth=TestIdp().runtime(prod.auth))
     transport = ASGITransport(app=app)

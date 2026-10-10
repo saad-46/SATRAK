@@ -18,7 +18,7 @@ from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from jwt.algorithms import ECAlgorithm, RSAAlgorithm
 
 from app.core.auth import AuthRuntime, build_auth_runtime
-from app.core.config import AuthSettings, Environment, Settings
+from app.core.config import AuthSettings, Environment, RateLimitSettings, Settings
 
 TEST_ISSUER = "https://issuer.example.invalid"
 TEST_AUDIENCE = "satrak-api-test"
@@ -35,11 +35,13 @@ def auth_settings(**overrides: Any) -> AuthSettings:
     return AuthSettings(**values)
 
 
-def make_settings(**auth_overrides: Any) -> Settings:
+def make_settings(*, rate_limit: bool = False, **auth_overrides: Any) -> Settings:
+    """Test settings. Rate limiting is off unless asked for: most tests hammer one address."""
     return Settings(
         environment=Environment.TEST,
         log_format="console",
         auth=auth_settings(**auth_overrides),
+        rate_limit=RateLimitSettings(enabled=rate_limit),
     )
 
 

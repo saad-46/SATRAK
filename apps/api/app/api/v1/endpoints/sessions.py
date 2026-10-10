@@ -21,16 +21,23 @@ from app.api.deps import (
     PrincipalDep,
     SecurityAuditDep,
     _request_id,
-    client_ip,
     record_security_event,
     require_permission,
 )
+from app.api.ratelimit import client_ip, limit_ip, limit_user
 from app.core.authz import AccessContext
 from app.core.exceptions import ServiceUnavailableError
 from app.core.security_audit import SESSION_REVOKED, SecurityEvent
 
-logout_router = APIRouter(tags=["auth"])
-admin_router = APIRouter(tags=["admin: sessions"])
+# Sensitive auth entry point: tight per-IP budget that fails closed if the limiter is down.
+logout_router = APIRouter(
+    tags=["auth"],
+    dependencies=[
+        Depends(limit_ip("auth_entry_ip", critical=True)),
+        Depends(limit_user("api_user")),
+    ],
+)
+admin_router = APIRouter(tags=["admin: sessions"], dependencies=[Depends(limit_user("admin_user"))])
 
 REVOKE_PERMISSION = "session:revoke"
 _ADMIN_REVOKE_TTL = timedelta(hours=1)  # ample: access tokens live 15 minutes (ADR-0013)

@@ -12,7 +12,7 @@ from functools import lru_cache
 from typing import Annotated, Literal
 from urllib.parse import urlparse
 
-from pydantic import Field, PostgresDsn, RedisDsn, field_validator, model_validator
+from pydantic import BaseModel, Field, PostgresDsn, RedisDsn, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -112,6 +112,68 @@ class AuthSettings(BaseSettings):
         return self
 
 
+class RatePolicySpec(BaseModel):
+    """``limit`` requests per ``window_seconds`` (one rule of a named policy)."""
+
+    limit: int = Field(gt=0)
+    window_seconds: int = Field(gt=0)
+
+
+# Starting values approved by the owner (2026-10-10) except where marked PROPOSED, which the
+# owner has not yet seen; tune all of them from measured traffic. Each named policy is a list
+# of rules that must all pass. Scope (per user / per IP) is fixed by the code that applies it.
+DEFAULT_RATE_POLICIES: dict[str, list[RatePolicySpec]] = {
+    "auth_entry_ip": [RatePolicySpec(limit=10, window_seconds=60)],
+    "auth_failure_ip": [RatePolicySpec(limit=10, window_seconds=60)],
+    "api_user": [RatePolicySpec(limit=120, window_seconds=60)],
+    "eo_search_user": [RatePolicySpec(limit=30, window_seconds=60)],
+    "expensive_user": [
+        RatePolicySpec(limit=5, window_seconds=60),
+        RatePolicySpec(limit=30, window_seconds=3600),
+    ],
+    "admin_user": [RatePolicySpec(limit=10, window_seconds=60)],
+    # PROPOSED: not in the approved table. A per-IP ceiling for authenticated traffic and a
+    # separate tile budget (a map view fetches dozens of tiles at once).
+    "api_ip": [RatePolicySpec(limit=600, window_seconds=60)],
+    "tiles_user": [RatePolicySpec(limit=600, window_seconds=60)],
+}
+
+
+class RateLimitSettings(BaseSettings):
+    """Distributed rate limiting (Redis). Policy values are overridable per environment."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="SATRAK_API_RATE_LIMIT_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        case_sensitive=False,
+    )
+
+    enabled: bool = True
+    # Replace individual named policies (JSON), e.g. {"eo_search_user": [{"limit": 60, ...}]}.
+    overrides: dict[str, list[RatePolicySpec]] = Field(default_factory=dict)
+    # Number of trusted reverse proxies in front of the API. 0 = use the TCP peer address and
+    # ignore X-Forwarded-For entirely (a client-supplied header must never pick its own IP).
+    trusted_proxy_hops: int = Field(default=0, ge=0, le=10)
+    # Progressive throttling after repeated authentication failures from one IP.
+    penalty_base_seconds: int = Field(default=60, gt=0)
+    penalty_max_seconds: int = Field(default=3600, gt=0)
+    # Process-local budget (requests per minute per key) used for *ordinary* requests while
+    # Redis is unavailable. Auth and expensive operations fail closed instead (503).
+    fallback_per_minute: int = Field(default=60, gt=0)
+
+    @model_validator(mode="after")
+    def _known_policies_only(self) -> RateLimitSettings:
+        unknown = set(self.overrides) - set(DEFAULT_RATE_POLICIES)
+        if unknown:
+            raise ValueError(f"unknown rate limit policies: {sorted(unknown)}")
+        return self
+
+    def policy(self, name: str) -> list[RatePolicySpec]:
+        return self.overrides.get(name, DEFAULT_RATE_POLICIES[name])
+
+
 class Settings(BaseSettings):
     """Validated application settings.
 
@@ -154,6 +216,10 @@ class Settings(BaseSettings):
     # --- Authentication ------------------------------------------------------
     auth: AuthSettings = Field(default_factory=AuthSettings)
 
+    # --- Rate limiting and request hardening ---------------------------------
+    rate_limit: RateLimitSettings = Field(default_factory=RateLimitSettings)
+    max_request_body_bytes: int = Field(default=1_048_576, gt=0)  # 1 MiB; uploads use storage
+
     # --- Logging -------------------------------------------------------------
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_format: Literal["json", "console"] = "json"
@@ -178,6 +244,27 @@ class Settings(BaseSettings):
             Environment.PRODUCTION,
         ):
             raise ValueError("authentication cannot be disabled in staging or production")
+        return self
+
+    @model_validator(mode="after")
+    def _hardening_cannot_be_disabled_outside_dev(self) -> Settings:
+        if not self.rate_limit.enabled and self.environment in (
+            Environment.STAGING,
+            Environment.PRODUCTION,
+        ):
+            raise ValueError("rate limiting cannot be disabled in staging or production")
+        if "*" in self.cors_origins:
+            raise ValueError("cors_origins must list explicit origins (credentials are allowed)")
+        if (
+            self.rate_limit.enabled
+            and self.redis_url is None
+            and self.environment
+            in (
+                Environment.STAGING,
+                Environment.PRODUCTION,
+            )
+        ):
+            raise ValueError("rate limiting requires redis_url in staging or production")
         return self
 
     @property

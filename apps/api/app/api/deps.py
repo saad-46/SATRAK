@@ -14,6 +14,7 @@ import structlog
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.ratelimit import client_ip, gate_source_ip, note_auth_failure
 from app.core.auth import AuthRuntime, InvalidTokenError, JwksUnavailableError, Principal
 from app.core.authz import AccessContext, AccessStore, AccessUser
 from app.core.config import Settings
@@ -56,6 +57,7 @@ async def _verify_bearer_token(request: Request) -> Principal:
     a 401; inability to obtain signing keys is a 503, never an allow. Failure reasons are
     logged as codes only and never echoed to the caller; tokens are never logged.
     """
+    await gate_source_ip(request)
     settings = cast(Settings, request.app.state.settings)
     runtime = cast(AuthRuntime | None, getattr(request.app.state, "auth", None))
     if not settings.auth.enabled:
@@ -75,6 +77,7 @@ async def _verify_bearer_token(request: Request) -> Principal:
     parts = values[0].split(" ") if len(values) == 1 else []
     if len(parts) != 2 or parts[0].lower() != "bearer" or not parts[1]:
         logger.info("auth_rejected", reason="bad_authorization_header")
+        await note_auth_failure(request)
         raise UnauthorizedError(
             "The access token is invalid.",
             code="invalid_token",
@@ -84,6 +87,7 @@ async def _verify_bearer_token(request: Request) -> Principal:
         principal = await runtime.verifier.verify(parts[1])
     except InvalidTokenError as exc:
         logger.info("auth_rejected", reason=exc.reason)
+        await note_auth_failure(request)
         await best_effort_security_event(
             request,
             SecurityEvent(
@@ -123,11 +127,6 @@ async def get_current_principal(request: Request) -> Principal:
 
 
 PrincipalDep = Annotated[Principal, Depends(get_current_principal)]
-
-
-def client_ip(request: Request) -> str | None:
-    """Direct peer address. Proxy headers are deliberately not trusted here (see Story 6)."""
-    return request.client.host if request.client else None
 
 
 def get_security_audit(request: Request) -> SecurityAuditLog:
@@ -204,6 +203,7 @@ async def _resolve_user(request: Request, principal: Principal, store: AccessSto
 
 async def _reject_revoked(request: Request, user: AccessUser, reason: str) -> None:
     logger.info("auth_rejected", reason=reason)
+    await note_auth_failure(request)
     await best_effort_security_event(
         request,
         SecurityEvent(

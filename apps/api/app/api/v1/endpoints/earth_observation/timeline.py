@@ -9,8 +9,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
+from app.api.ratelimit import limit_user
 from app.api.v1.endpoints.earth_observation.deps import (
     EoDep,
     SceneReadAccess,
@@ -26,7 +27,12 @@ from app.api.v1.endpoints.earth_observation.schemas import (
 router = APIRouter(tags=["earth-observation: timeline"])
 
 
-@router.get("", response_model=TimelineResponse, summary="Browse imagery timeline for an area")
+@router.get(
+    "",
+    response_model=TimelineResponse,
+    summary="Browse imagery timeline for an area",
+    dependencies=[Depends(limit_user("eo_search_user"))],
+)
 async def area_timeline(
     eo: EoDep,
     access: SceneReadAccess,

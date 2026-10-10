@@ -69,6 +69,16 @@ class ForbiddenError(AppError):
     status_code = 403
 
 
+class TooManyRequestsError(AppError):
+    code = "rate_limited"
+    message = "Too many requests. Retry after the indicated delay."
+    status_code = 429
+
+    def __init__(self, retry_after: int, message: str | None = None) -> None:
+        super().__init__(message, headers={"Retry-After": str(max(1, int(retry_after)))})
+        self.retry_after = max(1, int(retry_after))
+
+
 class ServiceUnavailableError(AppError):
     code = "service_unavailable"
     message = "A required dependency is currently unavailable."

@@ -9,9 +9,10 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
 from app.api.pagination import PageParamsDep
+from app.api.ratelimit import limit_user
 from app.api.schemas import PageResponse
 from app.api.v1.endpoints.earth_observation.deps import (
     EoDep,
@@ -33,7 +34,12 @@ from app.shared.pagination import Page
 router = APIRouter(tags=["earth-observation: scenes"])
 
 
-@router.get("", response_model=PageResponse[SceneSummary], summary="Search scenes")
+@router.get(
+    "",
+    response_model=PageResponse[SceneSummary],
+    summary="Search scenes",
+    dependencies=[Depends(limit_user("eo_search_user"))],
+)
 async def search_scenes(
     eo: EoDep,
     access: SceneReadAccess,

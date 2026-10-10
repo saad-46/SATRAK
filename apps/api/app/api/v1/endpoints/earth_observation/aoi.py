@@ -10,9 +10,10 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
 from app.api.pagination import PageParamsDep
+from app.api.ratelimit import limit_user
 from app.api.schemas import PageResponse
 from app.api.v1.endpoints.earth_observation.deps import (
     AoiReadAccess,
@@ -62,7 +63,12 @@ async def get_aoi(aoi_id: UUID, eo: EoDep, access: AoiReadAccess) -> AoiDetail:
     return AoiDetail.from_domain(aoi)
 
 
-@router.get("/{aoi_id}/timeline", response_model=TimelineResponse, summary="AOI imagery history")
+@router.get(
+    "/{aoi_id}/timeline",
+    response_model=TimelineResponse,
+    summary="AOI imagery history",
+    dependencies=[Depends(limit_user("eo_search_user"))],
+)
 async def get_aoi_timeline(
     aoi_id: UUID,
     eo: EoDep,

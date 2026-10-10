@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from redis.asyncio import Redis
 
 from app.api.v1.endpoints.earth_observation.composition import build_earth_observation_api
 from app.api.v1.router import api_router
@@ -23,7 +24,9 @@ from app.core.exception_handlers import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import RequestContextMiddleware
 from app.core.openapi import build_custom_openapi
+from app.core.ratelimit import InMemoryRateLimiter, RateLimiter, RedisRateLimiter
 from app.core.security_audit import SecurityAuditLog
+from app.core.security_middleware import BodySizeLimitMiddleware, SecurityHeadersMiddleware
 from app.db.access_store import SqlAccessStore
 from app.db.security_audit_store import SqlSecurityAuditLog
 from app.db.session import dispose_engine, get_sessionmaker
@@ -39,6 +42,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
     if app.state.auth is not None:
         await app.state.auth.aclose()
+    if app.state.redis_client is not None:
+        await app.state.redis_client.aclose()
     await dispose_engine()
     logger.info("api_shutdown")
 
@@ -56,12 +61,30 @@ def _default_security_audit(settings: Settings) -> SecurityAuditLog | None:
     return SqlSecurityAuditLog(get_sessionmaker)
 
 
+def _default_rate_limiter(settings: Settings) -> tuple[RateLimiter | None, Redis | None]:
+    if not settings.rate_limit.enabled:
+        return None, None
+    if settings.redis_url is None:
+        # Single-process limiter: acceptable for local development only (staging/production
+        # settings validation requires Redis, since per-process state is not enough).
+        get_logger("api.lifecycle").warning("rate_limiter_process_local")
+        return InMemoryRateLimiter(), None
+    client = Redis.from_url(
+        str(settings.redis_url),
+        socket_timeout=1.0,
+        socket_connect_timeout=1.0,
+        decode_responses=False,
+    )
+    return RedisRateLimiter(client), client
+
+
 def create_app(
     settings: Settings | None = None,
     *,
     auth: AuthRuntime | None = None,
     access: AccessStore | None = None,
     audit: SecurityAuditLog | None = None,
+    rate_limiter: RateLimiter | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings)
@@ -82,19 +105,30 @@ def create_app(
     app.state.access = access if access is not None else _default_access_store(settings)
     # Durable security audit log (append-only, hash-chained). ``None`` fails closed.
     app.state.audit = audit if audit is not None else _default_security_audit(settings)
+    # Shared rate-limit state (Redis) with a strict process-local fallback for outages.
+    default_limiter, redis_client = (
+        (None, None) if rate_limiter is not None else _default_rate_limiter(settings)
+    )
+    app.state.rate_limiter = rate_limiter if rate_limiter is not None else default_limiter
+    app.state.rate_fallback = InMemoryRateLimiter()
+    app.state.redis_client = redis_client
     # Earth Observation API dependencies (in-memory backend today; swapped for the
     # SQLAlchemy/PostGIS adapter without endpoint changes when persistence lands).
     app.state.earth_observation = build_earth_observation_api()
 
-    # --- Middleware (order matters: context binding is outermost) ------------
-    app.add_middleware(RequestContextMiddleware)
+    # --- Middleware (added last = outermost; request context is outermost of all) ----
+    app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_request_body_bytes)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins,
+        allow_origins=settings.cors_origins,  # explicit origins only ("*" is rejected at startup)
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "If-None-Match", "X-Request-ID"],
+        expose_headers=["Retry-After", "X-Request-ID", "ETag"],
+        max_age=600,
     )
+    app.add_middleware(SecurityHeadersMiddleware, hsts=settings.is_production)
+    app.add_middleware(RequestContextMiddleware)
 
     # --- Errors --------------------------------------------------------------
     register_exception_handlers(app)

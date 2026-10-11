@@ -25,6 +25,10 @@ COPY pyproject.toml README.md requirements.lock ./
 RUN pip install --upgrade pip && pip install --require-hashes -r requirements.lock
 COPY app ./app
 RUN pip install --no-deps .
+# The runtime never installs packages. pip bundles its own copies of urllib3/msgpack that
+# Trivy reports separately from the locked dependencies, so drop pip from the venv before it
+# is copied into the runtime stage (the console scripts uvicorn/alembic do not need it).
+RUN pip uninstall -y pip && ! python -c "import pip" 2>/dev/null
 
 # --- Runtime -----------------------------------------------------------------
 FROM python:3.12-slim AS runtime
@@ -39,6 +43,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgeos-dev \
     curl \
     && rm -rf /var/lib/apt/lists/*
+
+# The base image ships pip, setuptools and wheel in the system site-packages. Nothing at runtime
+# needs them (none of the locked runtime packages requires setuptools or wheel, and app/ has no
+# pkg_resources/setuptools import), so remove them; the check fails the build if any survive.
+RUN /usr/local/bin/python -m pip uninstall -y pip setuptools wheel \
+    && ! /usr/local/bin/python -c "import importlib.util as u, sys; sys.exit(0 if any(u.find_spec(m) for m in ('pip','setuptools','pkg_resources','wheel')) else 1)"
 
 # Run as a non-root user.
 RUN groupadd --system satrak && useradd --system --gid satrak --create-home satrak

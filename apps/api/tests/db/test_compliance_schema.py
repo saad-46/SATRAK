@@ -6,10 +6,13 @@ append-only history, same-jurisdiction links, and the ADR-0014 release gate enfo
 
 from __future__ import annotations
 
+import importlib.util
+import re
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
@@ -19,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, async_sessionmaker, create_a
 
 from app.db.rls import tenant_session
 from app.db.tenancy import TENANT_TABLES
+from app.services.compliance_workflow import TRANSITION_PERMISSION
 from tests.db.conftest import (
     ADMIN_ROLE,
     APP_ROLE,
@@ -233,10 +237,34 @@ async def test_forced_rls_and_policies_exist(conn: AsyncConnection) -> None:
     assert all(r.relrowsecurity and r.relforcerowsecurity and r.policies >= 1 for r in rows)
 
 
-async def test_permission_catalogue_is_seeded_without_role_mapping(conn: AsyncConnection) -> None:
-    codes = {r[0] for r in await conn.execute(text("SELECT code FROM permission"))}
-    assert {"finding:verify", "candidate:create", "case:create", "case:assign"} <= codes
-    assert (await conn.execute(text("SELECT count(*) FROM role_permission"))).scalar_one() == 0
+def _migration_permissions() -> dict[str, str]:
+    path = Path(__file__).resolve().parents[2] / "alembic/versions/0005_compliance_workflow.py"
+    spec = importlib.util.spec_from_file_location("migration_0005", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return dict(module.PERMISSIONS)
+
+
+async def test_seeded_permissions_cover_every_permission_the_routes_require(
+    conn: AsyncConnection,
+) -> None:
+    catalogue = _migration_permissions()
+    source = (
+        Path(__file__).resolve().parents[2] / "app/api/v1/endpoints/compliance.py"
+    ).read_text()
+    required = set(re.findall(r'_need\("([^"]+)"\)', source)) | set(TRANSITION_PERMISSION.values())
+    assert required and required <= set(catalogue)
+    # Every code passes the table's format constraint (checked in a rolled-back transaction).
+    for code, description in catalogue.items():
+        state = await _state(
+            conn,
+            "INSERT INTO permission (code, description) VALUES (:c, :d)"
+            " ON CONFLICT (code) DO NOTHING",
+            c=code,
+            d=description,
+        )
+        assert state == "ok", code
 
 
 async def _seed_history(w: World) -> dict[str, uuid.UUID]:

@@ -126,13 +126,13 @@ forbidden_modules = [
 name = "Bounded contexts depend only inward"
 type = "forbidden"
 source_modules = ["app.contexts"]
-forbidden_modules = ["app.api", "app.db", "app.core", "app.main"]
+forbidden_modules = ["app.api", "app.db", "app.core", "app.main", "app.services"]
 
 # The bypass-capable (BYPASSRLS) database role is for audited maintenance only (ADR-0011).
 [[tool.importlinter.contracts]]
 name = "The web layer never uses privileged database access"
 type = "forbidden"
-source_modules = ["app.api", "app.contexts", "app.main"]
+source_modules = ["app.api", "app.contexts", "app.main", "app.services"]
 forbidden_modules = ["app.db.privileged"]
 
 # The all-tenants repository scope is for system jobs, never request handling (ADR-0011).
@@ -157,6 +157,14 @@ forbidden_modules = [
     "app.contexts.earth_observation.application.tiling",
     "app.contexts.earth_observation.application.jobs",
 ]
+
+# Orchestration sits between the web layer and persistence; it never reaches back up, and it
+# never uses the all-tenants scope (ADR-0011).
+[[tool.importlinter.contracts]]
+name = "Services do not depend on the web layer or use the system-wide scope"
+type = "forbidden"
+source_modules = ["app.services"]
+forbidden_modules = ["app.api", "app.main", "app.shared.domain.system_scope"]
 
 [[tool.importlinter.contracts]]
 name = "Core infrastructure does not depend on API or contexts"

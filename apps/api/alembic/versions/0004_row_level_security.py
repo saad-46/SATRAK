@@ -116,9 +116,11 @@ def downgrade() -> None:
         for role in ("satrak_app", "satrak_admin"):
             op.execute(_if_role(role, f"REVOKE ALL ON {table} FROM {role}"))
     op.execute("ALTER TABLE audit_event DROP CONSTRAINT ck_audit_event_event_type_valid")
+    # The audit log is append-only: rows already written cannot be removed, so the narrower rule
+    # is restored NOT VALID (enforced for new rows, history is not re-checked or rewritten).
     op.execute(
         "ALTER TABLE audit_event ADD CONSTRAINT ck_audit_event_event_type_valid "
-        f"CHECK (event_type IN {_OLD_EVENT_TYPES})"
+        f"CHECK (event_type IN {_OLD_EVENT_TYPES}) NOT VALID"
     )
     op.execute("DROP POLICY IF EXISTS own_assignments_read ON role_assignment")
     for table in TENANT_TABLES:

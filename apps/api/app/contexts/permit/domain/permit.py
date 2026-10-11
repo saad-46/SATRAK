@@ -13,7 +13,7 @@ from datetime import date
 from enum import StrEnum
 from typing import Final
 
-from app.shared.domain.errors import BusinessRuleViolation, ValueValidationError
+from app.shared.domain.errors import InvalidStateTransition, ValueValidationError
 
 # Placeholder tolerance for "declared plot area agrees with the surveyed parcel". It is a
 # default, recorded with every assessment, pending an approved municipal rule (FR-6.1/6.5).
@@ -45,7 +45,7 @@ _STATUS_CHANGES: Final = {
 
 def validate_status_change(current: PermitStatus, target: PermitStatus) -> None:
     if target not in _STATUS_CHANGES[current]:
-        raise BusinessRuleViolation(
+        raise InvalidStateTransition(
             f"a {current.value} permit cannot become {target.value}",
             details={"from": current.value, "to": target.value},
         )

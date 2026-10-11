@@ -9,13 +9,14 @@ app instance rather than importing a module-level singleton with side effects).
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from redis.asyncio import BlockingConnectionPool, Redis
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.api.v1.endpoints.earth_observation.composition import build_earth_observation_api
 from app.api.v1.router import api_router
@@ -129,6 +130,7 @@ def create_app(
     access: AccessStore | None = None,
     audit: SecurityAuditLog | None = None,
     rate_limiter: RateLimiter | None = None,
+    sessions: Callable[[], async_sessionmaker[AsyncSession]] | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings)
@@ -147,6 +149,13 @@ def create_app(
     # Authorization state (roles, assignments, jurisdictions). Defaults to PostgreSQL;
     # tests inject an in-memory store with identical semantics.
     app.state.access = access if access is not None else _default_access_store(settings)
+    # Session factory for the compliance workflow (tenant-scoped transactions). ``None`` without
+    # a database, in which case those routes answer 503 instead of guessing.
+    app.state.sessions = (
+        sessions
+        if sessions is not None
+        else (get_sessionmaker if settings.database_url is not None else None)
+    )
     # Durable security audit log (append-only, hash-chained). ``None`` fails closed.
     app.state.audit = audit if audit is not None else _default_security_audit(settings)
     # Shared rate-limit state (Redis) with a strict process-local fallback for outages.

@@ -1191,9 +1191,12 @@ def downgrade() -> None:
         "SELECT 1 FROM role_permission WHERE permission_id = permission.id)"
     )
     op.execute("ALTER TABLE audit_event DROP CONSTRAINT ck_audit_event_event_type_valid")
+    # The audit log is append-only, so rows with the workflow event types cannot be removed.
+    # NOT VALID keeps the narrower rule for every new row without re-checking (or rewriting)
+    # the history that already exists.
     op.execute(
         "ALTER TABLE audit_event ADD CONSTRAINT ck_audit_event_event_type_valid "
-        f"CHECK (event_type IN {_event_types(_BASE_EVENT_TYPES)})"
+        f"CHECK (event_type IN {_event_types(_BASE_EVENT_TYPES)}) NOT VALID"
     )
     op.drop_index(
         op.f("ix_case_state_transition_jurisdiction_id"), table_name="case_state_transition"

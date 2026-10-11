@@ -20,7 +20,7 @@ from app.contexts.property.domain import (
     normalize_parcel_code,
     normalize_property_ref,
 )
-from app.shared.domain.errors import BusinessRuleViolation, ValueValidationError
+from app.shared.domain.errors import InvalidStateTransition, ValueValidationError
 
 
 @pytest.mark.parametrize(
@@ -93,9 +93,9 @@ def test_permit_status_changes_follow_the_allowed_graph() -> None:
     validate_status_change(PermitStatus.APPROVED, PermitStatus.CLOSED)
     for final in (PermitStatus.REVOKED, PermitStatus.CLOSED):
         for target in PermitStatus:
-            with pytest.raises(BusinessRuleViolation):
+            with pytest.raises(InvalidStateTransition):
                 validate_status_change(final, target)
-    with pytest.raises(BusinessRuleViolation):
+    with pytest.raises(InvalidStateTransition):
         validate_status_change(PermitStatus.APPROVED, PermitStatus.APPROVED)
 
 

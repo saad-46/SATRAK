@@ -53,7 +53,35 @@ address (inspect the `rate_limited` log key or exhaust `api_ip` from the forged 
 - `session_retention_days` = 30 is **unapproved**; the records-retention policy must decide.
 - Rate-limit fallback state and metrics are per process.
 
-## 4. Release checks not yet run in this environment
+## 4. Release checks
 
-Next.js production build (sandbox TLS failure on the font fetch), Docker image builds, the GitHub
-integration CI job, and the Python 3.12 lockfile freshness check.
+Local sandbox (Python 3.13): the Next.js production build failed on a font fetch (TLS), and Docker could not
+be run. GitHub Actions at `d7ab92d` (Python 3.12) then passed these jobs: Web (lint, typecheck, test, build),
+API (includes "Dependency lock is current"), Integration, Migrations, Security, Docker build verification and
+CodeQL. What those jobs do and do not prove:
+
+- **Lockfile freshness (Python 3.12):** enforced. The API job reinstalls from the hash-pinned lock, runs
+  `pip-compile` (pip-tools 7.6.2) for `requirements.lock` and `requirements-dev.lock` on 3.12, then
+  `git diff --exit-code`. It checks the committed locks on Linux x86_64 only.
+- **Docker:** the job builds two images without pushing: `apps/api/Dockerfile` (tag `satrak-api:ci`) and
+  `apps/web/Dockerfile` (`satrak-web:ci`). It never starts a container, so the `HEALTHCHECK`, the non-root
+  user, start-up under production settings and an image vulnerability scan are not exercised. No image
+  exists for a job worker. `infra/docker-compose` also pulls `postgis/postgis:16-3.4`, `redis:7-alpine` and
+  `node:20-slim` for local development; those are not built or scanned by CI. Base images are pinned by tag,
+  not digest.
+
+## 5. Evidence record (fill in during staging; leave blank until demonstrated)
+
+| #   | Requirement                            | Pass criterion                                                                    | Result | Date / run / log link |
+| --- | -------------------------------------- | --------------------------------------------------------------------------------- | ------ | --------------------- |
+| R1  | IdP emits `sid` or `jti`               | Present in a captured access token (claims only)                                  |        |                       |
+| R2  | IdP access-token lifetime              | Documented value, and `exp - iat` in a captured token, at most 900 s              |        |                       |
+| R3  | SATRAK-side revocation                 | 401 on every API instance within 60 s of the revoke call (expected: next request) |        |                       |
+| R4  | IdP-side disable                       | Old token rejected within 60 s, via an integrated IdP signal                      |        |                       |
+| R5  | API port reachable only from the proxy | Connection from outside the allowed range is refused or times out                 |        |                       |
+| R6  | Forged `X-Forwarded-For`               | Limited under the proxy-observed address                                          |        |                       |
+| R7  | `rate_limit_no_trusted_proxy`          | Absent from production start-up logs                                              |        |                       |
+| R8  | Session retention                      | Written approval of a retention period (30 days is unapproved)                    |        |                       |
+
+R4 passes only with evidence of an IdP signal that SATRAK consumes. If the IdP offers none, the one-minute
+requirement stays unmet unless the owner restates it.

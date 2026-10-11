@@ -2,7 +2,9 @@
 
 Last verified: 2026-10-10. GitHub `main` = `ce93ee6` (v0.1.0 foundation; docs mention `v0.2.0-alpha` for Epic 2, no git tags exist). Local synced folder = unversioned, ahead of GitHub (see Repository Audit §1). Branch for new work: `claude/project-thread-w90bwr` (nothing committed or pushed yet).
 
-## Compliance workflow slice (2026-10-11, local branch `claude/satrak-compliance-workflow`, not pushed)
+## Compliance workflow slice (2026-10-11, branch `claude/satrak-compliance-workflow`, pushed 2026-10-11 05:2x UTC, no PR)
+
+**CI status:** none. `ci.yml` and `codeql.yml` trigger only on `pull_request` to `main` and `push` to `main`, so pushing this branch started no workflow (0 runs found for the branch). CI results require a PR, which has not been authorised. Local results are in the table below and are not CI evidence.
 
 First product vertical on the access-control foundation: parcels with versioned geometry, properties, permits with parcel matching, construction-change candidates, deterministic permit evaluation, officer verification (ADR-0014 release gate, enforced in service and database), and cases with assignment, lifecycle and findings. Design: ADR-0015; API and requirement-to-evidence record: `docs/COMPLIANCE_WORKFLOW.md`. Verified locally against PostgreSQL 16/PostGIS and Redis; **not yet verified in CI**. Modules 4, 5, 6 and 10 move from N to P below (partial; limits are listed per feature). No officer-facing UI, no live permit/imagery/model integration, rule thresholds unapproved. Blockers R1–R8 are unchanged: this is not production readiness.
 

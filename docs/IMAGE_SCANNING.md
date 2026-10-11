@@ -66,6 +66,14 @@ image. They were remediated, not excepted; the policy and the gate are unchanged
 | Web: npm-bundled `tar`, `glob`, `minimatch`, ... (22)      | npm shipped inside the base image                                | npm, npx, corepack and yarn are removed from the runtime stage; the build fails if any is still on `PATH`          |
 | Web: `next`, `sharp`, `postcss`, `nanoid`, `source-map-js` | application lock file                                            | `next` 15.5.27, `sharp` 0.35.5, and `pnpm.overrides` `next>postcss` = 8.5.29 (Next 15 pins postcss 8.4.31 exactly) |
 
+Follow-up changes after the first green scan: the API runtime stage no longer installs `libgdal-dev`,
+`libgeos-dev` or `curl` (no GDAL/GEOS binding is locked or imported; the `HEALTHCHECK` is
+`apps/api/healthcheck.py`), and the Web smoke job now lists every installed copy of `next`, `sharp`,
+`postcss`, `nanoid` and `source-map-js` from inside the running image and compares them with the
+approved floors in `scripts/ci/check_web_versions.py` and with `pnpm-lock.yaml`. `next` vendors
+unversioned copies of some libraries under `next/dist/compiled/`; the check lists them as `VENDORED`
+because their version cannot be read from the image.
+
 Only a CI scan of the exact images proves these fixes; this section is a description, not evidence.
 
 Reproducibility trade-off: the Web base is pinned by digest, so builds are repeatable but do not pick

@@ -45,9 +45,9 @@ Reviewed: `apps/api/Dockerfile`, `apps/web/Dockerfile`,
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------ |
 | **API image**        | Multi-stage (builder → slim runtime); no build toolchain in final image                                                                    | ✅ good                  |
 | **API image**        | Runs as non-root `satrak` user                                                                                                             | ✅ good                  |
-| **API image**        | GDAL/GEOS runtime libs present for GeoAlchemy2/Shapely                                                                                     | ✅ good                  |
-| **API image**        | `curl` present → `HEALTHCHECK` can run                                                                                                     | ✅ good                  |
-| **API image**        | `HEALTHCHECK` hits `/api/v1/health/live`                                                                                                   | ✅ good                  |
+| **API image**        | No GDAL/GEOS or other `-dev` packages in runtime: none is used (a future adapter adds its own); CI asserts                                 | ✅ good                  |
+| **API image**        | No `curl`; `HEALTHCHECK` = `python /app/healthcheck.py` (stdlib; healthy only on HTTP 200)                                                 | ✅ good                  |
+| **API image**        | `HEALTHCHECK` hits `/api/v1/health/live` on `127.0.0.1:8000`                                                                               | ✅ good                  |
 | **Web image (prod)** | `apps/web/Dockerfile` multi-stage, Node 22 (digest-pinned `node:22-trixie-slim`), standalone output (gated on `BUILD_STANDALONE=true`)     | ✅ good                  |
 | **Web (compose)**    | Compose runs `node:22-slim` with an inline `pnpm install`/dev server (HMR), **not** the prod Dockerfile — an intentional dev-vs-prod split | ✅ by design (noted)     |
 | **Compose**          | Healthchecks on postgis, redis, api                                                                                                        | ✅ good                  |

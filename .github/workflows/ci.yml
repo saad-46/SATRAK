@@ -78,7 +78,7 @@ jobs:
       - name: Ruff (format check)
         run: ruff format --check .
       - name: mypy (strict types)
-        run: mypy app
+        run: mypy app healthcheck.py
       - name: import-linter (dependency rule)
         run: lint-imports
       - name: Pytest (+ coverage gate)
@@ -113,7 +113,7 @@ jobs:
           pip install --require-hashes -r requirements-dev.lock
       - name: Bandit (SAST)
         working-directory: apps/api
-        run: bandit -q -c pyproject.toml -r app
+        run: bandit -q -c pyproject.toml -r app healthcheck.py
       - name: pip-audit (dependency CVEs)
         working-directory: apps/api
         run: pip-audit --require-hashes --disable-pip -r requirements-dev.lock
@@ -365,6 +365,27 @@ jobs:
             sleep 3
           done
           echo "health=$s"; test "$s" = healthy
+      - name: Health check script reports healthy, and unhealthy when unreachable
+        run: |
+          docker exec satrak-api python /app/healthcheck.py
+          # Nothing listens on port 1: connection refused must exit non-zero.
+          if docker exec satrak-api python /app/healthcheck.py http://127.0.0.1:1/api/v1/health/live; then
+            echo "health check script passed against a closed port"; exit 1
+          fi
+          # A 404 from the live API is a non-success response and must also be unhealthy.
+          if docker exec satrak-api python /app/healthcheck.py http://127.0.0.1:8000/api/v1/health/does-not-exist; then
+            echo "health check script passed on a 404"; exit 1
+          fi
+      - name: API image has no development, spatial or curl packages
+        run: |
+          docker run --rm --entrypoint dpkg-query satrak-api:ci -W -f '${Package}\n' > api-packages.txt
+          # Fail if the listing did not really run (an empty list would pass the grep below).
+          test "$(wc -l < api-packages.txt)" -gt 20
+          if bad="$(grep -E -e '-dev$' -e '^curl$' -e '^libcurl' -e '^libgdal' -e '^gdal-' -e '^libgeos' -e '^libmariadb' -e '^mariadb-' -e '^gnupg$' -e '^gpg$' -e '^linux-libc-dev$' api-packages.txt)"; then
+            echo "unexpected packages in the API image:"; echo "$bad"; exit 1
+          fi
+          echo "packages inspected: $(wc -l < api-packages.txt)"
+          docker exec satrak-api python -c "import geoalchemy2; print('geoalchemy2', geoalchemy2.__version__)"
       - name: Unsafe configuration is refused (exits non-zero)
         run: |
           # The schema owner as the application role would bypass row-level security.
@@ -453,6 +474,14 @@ jobs:
           echo "uid=$uid user=$user"
           test "$uid" != 0 && test "$user" = nextjs
           ! docker top satrak-web -eo user | tail -n +2 | grep -qx root
+      - name: Web image ships the approved dependency versions
+        run: |
+          # Reads package.json of every installed copy inside the running image (no lock-file
+          # shortcut), then compares with the approved floors and with pnpm-lock.yaml.
+          docker exec -i satrak-web node - < scripts/ci/web_package_inventory.js > web-inventory.json || {
+            echo "VERIFICATION INCOMPLETE: the inventory script failed"; cat web-inventory.json; exit 2
+          }
+          python3 scripts/ci/check_web_versions.py --inventory web-inventory.json --lock pnpm-lock.yaml
       - name: Container logs on failure
         if: failure()
         run: |

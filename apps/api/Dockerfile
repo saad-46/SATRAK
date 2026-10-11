@@ -37,12 +37,11 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:$PATH"
 
-# Runtime spatial libraries (no compilers).
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgdal-dev \
-    libgeos-dev \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# No system packages are installed in this stage on purpose. The locked runtime dependencies
+# contain no GDAL/GEOS binding (GeoAlchemy2 needs only SQLAlchemy) and the application imports
+# none, so development packages such as libgdal-dev only added attack surface. A future raster
+# adapter that needs native libraries must declare and install its own runtime packages (not -dev
+# packages) in its own change, with its own image scan.
 
 # The base image ships pip, setuptools and wheel in the system site-packages. Nothing at runtime
 # needs them (none of the locked runtime packages requires setuptools or wheel, and app/ has no
@@ -58,12 +57,13 @@ COPY --from=builder /opt/venv /opt/venv
 COPY --chown=satrak:satrak alembic.ini ./
 COPY --chown=satrak:satrak alembic ./alembic
 COPY --chown=satrak:satrak app ./app
+COPY --chown=satrak:satrak healthcheck.py ./
 
 USER satrak
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD curl -fsS http://localhost:8000/api/v1/health/live || exit 1
+    CMD ["python", "/app/healthcheck.py"]
 
 # --no-proxy-headers: uvicorn must not rewrite client addresses from X-Forwarded-For; the
 # application resolves them (rate_limit.trusted_proxy_*) so there is exactly one trust path.

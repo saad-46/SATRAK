@@ -52,6 +52,16 @@ details.
 | `POST /cases/{id}/transitions`                 | per target (below)                      | State change                                                        |
 | `POST /cases/{id}/findings`                    | `case:update`                           | Field finding: notes, measurements, hash-identified evidence        |
 
+Console read models (added for the officer console, see `docs/OFFICER_CONSOLE.md`):
+
+| Route                    | Permission                                        | Purpose                                                                                                                                |
+| ------------------------ | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /me`                | authenticated                                     | The caller, the jurisdictions where each console permission is held, and those jurisdictions' names                                    |
+| `GET /dashboard/summary` | `candidate:read` and/or `case:read` (per section) | Server-side counts: candidates by status, verified-awaiting-case, cases by status, unassigned, per-jurisdiction; `sla.available=false` |
+| `GET /activity?limit`    | any of the four read permissions                  | Newest-first workflow history (reviews, case transitions/findings, permit and parcel events); no audit metadata                        |
+
+`GET /candidates/{id}` and `GET /cases/{id}` also return an `actions` block (`allowed_decisions`, `confirm_blockers`, `can_open_case`, `open_case_blockers`; `allowed_transitions`, `can_assign`, `can_add_finding`) computed from the caller's permissions and the domain rules. It is informational: every write is validated again and the release gate is enforced in the service and the database. List filters added: candidates `parcel_id`; cases `assigned_to`, `unassigned`, `jurisdiction_id`, `candidate_id`, `parcel_id`; parcels `topology_status`; properties `parcel_id`; permits `parcel_id`.
+
 Transition permissions: `assigned`, `under_investigation` → `case:update`; `notice_issued` →
 `case:issue_notice`; `resolved`, `dismissed` → `case:resolve`. `notice_issued` also needs at least one
 recorded finding. Domain errors map to 409 (`invalid_state_transition`, `verification_required`,

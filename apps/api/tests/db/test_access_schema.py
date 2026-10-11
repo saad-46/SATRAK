@@ -233,7 +233,7 @@ async def test_user_identity_is_unique_per_issuer_and_subject(conn: AsyncConnect
     ("code", "ok"),
     [
         ("eo:scene:read", True),
-        ("finding:verify", True),
+        ("report:read", True),
         ("EO:Read", False),
         ("noscope", False),
         ("a:", False),

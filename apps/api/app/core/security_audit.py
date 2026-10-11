@@ -27,8 +27,44 @@ USER_LOGIN_FAILED: Final = "user.login_failed"
 ACCESS_DENIED: Final = "access.denied"
 SESSION_REVOKED: Final = "session.revoked"
 PRIVILEGED_DB_USED: Final = "privileged_db.used"
+
+# Compliance-workflow events (parcels, permits, candidates, officer verification, cases).
+PARCEL_CREATED: Final = "parcel.created"
+PARCEL_GEOMETRY_VERSIONED: Final = "parcel.geometry_versioned"
+PROPERTY_CREATED: Final = "property.created"
+PERMIT_CREATED: Final = "permit.created"
+PERMIT_STATUS_CHANGED: Final = "permit.status_changed"
+PERMIT_MATCH_RESOLVED: Final = "permit.match_resolved"
+CANDIDATE_REGISTERED: Final = "candidate.registered"
+CANDIDATE_EVALUATED: Final = "candidate.evaluated"
+CANDIDATE_REVIEWED: Final = "candidate.reviewed"
+RELEASE_DENIED: Final = "release.denied"
+CASE_CREATED: Final = "case.created"
+CASE_ASSIGNED: Final = "case.assigned"
+CASE_TRANSITIONED: Final = "case.transitioned"
+CASE_FINDING_ADDED: Final = "case.finding_added"
 EVENT_TYPES: Final = frozenset(
-    {USER_LOGGED_IN, USER_LOGIN_FAILED, ACCESS_DENIED, SESSION_REVOKED, PRIVILEGED_DB_USED}
+    {
+        USER_LOGGED_IN,
+        USER_LOGIN_FAILED,
+        ACCESS_DENIED,
+        SESSION_REVOKED,
+        PRIVILEGED_DB_USED,
+        PARCEL_CREATED,
+        PARCEL_GEOMETRY_VERSIONED,
+        PROPERTY_CREATED,
+        PERMIT_CREATED,
+        PERMIT_STATUS_CHANGED,
+        PERMIT_MATCH_RESOLVED,
+        CANDIDATE_REGISTERED,
+        CANDIDATE_EVALUATED,
+        CANDIDATE_REVIEWED,
+        RELEASE_DENIED,
+        CASE_CREATED,
+        CASE_ASSIGNED,
+        CASE_TRANSITIONED,
+        CASE_FINDING_ADDED,
+    }
 )
 OUTCOMES: Final = frozenset({"success", "failure", "denied"})
 

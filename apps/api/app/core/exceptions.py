@@ -101,5 +101,7 @@ DOMAIN_ERROR_STATUS: dict[str, int] = {
     "value_validation_error": 422,
     "business_rule_violation": 422,
     "concurrency_conflict": 409,
+    "invalid_state_transition": 409,
+    "verification_required": 409,
     "domain_error": 422,
 }

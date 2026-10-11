@@ -25,6 +25,7 @@ from tests.db.conftest import (
     requires_database,
     role_engine,
 )
+from tests.db_reset import truncate_cascade
 
 pytestmark = [pytest.mark.integration, requires_database]
 
@@ -47,11 +48,10 @@ async def world(migrated_database: str) -> AsyncIterator[Fixture]:
     admin = role_engine(migrated_database, ADMIN_ROLE)
     app = role_engine(migrated_database, APP_ROLE)
     async with owner.begin() as conn:
-        await conn.execute(
-            text(
-                "TRUNCATE auth_session, role_assignment, role_permission, role, permission, "
-                "user_account, organization, jurisdiction RESTART IDENTITY CASCADE"
-            )
+        await truncate_cascade(
+            conn,
+            "auth_session, role_assignment, role_permission, role, permission, "
+            "user_account, organization, jurisdiction",
         )
     j: dict[str, uuid.UUID] = {}
     users: dict[str, uuid.UUID] = {}

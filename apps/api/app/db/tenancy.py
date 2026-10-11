@@ -11,7 +11,24 @@ from __future__ import annotations
 from typing import Final
 
 # Non-null ``jurisdiction_id``; row-level security enabled and forced.
-TENANT_TABLES: Final = frozenset({"organization", "role_assignment"})
+TENANT_TABLES: Final = frozenset(
+    {
+        "organization",
+        "role_assignment",
+        "parcel",
+        "parcel_geometry_version",
+        "property",
+        "building_permit",
+        "permit_history",
+        "construction_change_candidate",
+        "candidate_review",
+        "candidate_evaluation",
+        "inspection_case",
+        "case_state_transition",
+        "case_assignment",
+        "case_finding",
+    }
+)
 
 # System-global tables and why they are exempt from per-jurisdiction row security.
 GLOBAL_TABLES: Final[dict[str, str]] = {

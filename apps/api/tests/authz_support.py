@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 from app.core.authz import AccessStore, AccessUser, FirstSeen, SessionState
 from app.core.security_audit import InMemorySecurityAuditLog
 from app.db.access_store import SqlAccessStore
+from tests.db_reset import truncate_cascade
 
 NOW = datetime(2026, 10, 10, 12, 0, tzinfo=UTC)
 DAY = timedelta(days=1)
@@ -231,11 +232,10 @@ class SqlWorld:
 
     async def reset(self) -> None:
         async with self._owner.begin() as conn:
-            await conn.execute(
-                text(
-                    "TRUNCATE role_assignment, role_permission, role, permission, user_account, "
-                    "organization, jurisdiction RESTART IDENTITY CASCADE"
-                )
+            await truncate_cascade(
+                conn,
+                "role_assignment, role_permission, role, permission, user_account, "
+                "organization, jurisdiction",
             )
 
     async def jurisdiction(

@@ -71,8 +71,8 @@ CodeQL. What those jobs do and do not prove:
   user, start-up under production settings and an image vulnerability scan are not exercised by that job
   (the separate `container-smoke` job, below, starts the images; an image vulnerability scan is not part of
   this change). No image exists for a job worker. `infra/docker-compose` also pulls `postgis/postgis:16-3.4`, `redis:7-alpine` and
-  `node:20-slim` for local development; those are not built or scanned by CI. Base images are pinned by tag,
-  not digest.
+  `node:22-slim` for local development; those are not built or scanned by CI. The Web image's Node base is pinned by digest
+  (`node:22-trixie-slim@sha256:…`); the API base `python:3.12-slim` is pinned by tag only.
 
 ### Container smoke job (`container-smoke`)
 

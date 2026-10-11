@@ -88,7 +88,7 @@ services:
       start_period: 20s
 
   web:
-    image: node:20-slim
+    image: node:22-slim
     working_dir: /repo
     # corepack provides pnpm; install then run the Next dev server with HMR.
     command: >

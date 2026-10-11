@@ -53,6 +53,26 @@ so nothing here is referenced by tag:
 - To upgrade: choose a release newer than the advisory, review the diff of `action.yaml` and the pinned
   dependencies, and replace the SHA and comment together.
 
+## Remediation of the first scan findings
+
+The first scan (CI run 38100711785) reported 4 fixable findings in the API image and 52 in the Web
+image. They were remediated, not excepted; the policy and the gate are unchanged:
+
+| Finding group                                              | Origin                                                           | Remediation                                                                                                        |
+| ---------------------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| API: `msgpack`, `urllib3` (2 CVEs)                         | pip's vendored copies inside `/opt/venv`                         | pip is removed from the venv before it is copied into the runtime stage                                            |
+| API: `setuptools`                                          | Python base image site-packages                                  | pip, setuptools and wheel are removed from the runtime stage; the build fails if any is still importable           |
+| Web: Debian packages (17)                                  | `node:20-slim` is Node 20 (end of life) and is no longer rebuilt | Node 22 on `node:22-trixie-slim`, pinned by digest                                                                 |
+| Web: npm-bundled `tar`, `glob`, `minimatch`, ... (22)      | npm shipped inside the base image                                | npm, npx, corepack and yarn are removed from the runtime stage; the build fails if any is still on `PATH`          |
+| Web: `next`, `sharp`, `postcss`, `nanoid`, `source-map-js` | application lock file                                            | `next` 15.5.27, `sharp` 0.35.5, and `pnpm.overrides` `next>postcss` = 8.5.29 (Next 15 pins postcss 8.4.31 exactly) |
+
+Only a CI scan of the exact images proves these fixes; this section is a description, not evidence.
+
+Reproducibility trade-off: the Web base is pinned by digest, so builds are repeatable but do not pick
+up new Debian patches until the digest is bumped (Dependabot's `docker` ecosystem proposes the bump
+weekly). The alternative, an unpinned `apt-get upgrade`, was rejected because the same commit would
+build different images. The API base is pinned by tag only and picks up patches on each rebuild.
+
 ## Limits
 
 This scans the two built images. It does not scan the compose-only images (`postgis`, `redis`, `node` dev

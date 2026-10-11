@@ -48,8 +48,8 @@ Reviewed: `apps/api/Dockerfile`, `apps/web/Dockerfile`,
 | **API image**        | GDAL/GEOS runtime libs present for GeoAlchemy2/Shapely                                                                                     | ✅ good                  |
 | **API image**        | `curl` present → `HEALTHCHECK` can run                                                                                                     | ✅ good                  |
 | **API image**        | `HEALTHCHECK` hits `/api/v1/health/live`                                                                                                   | ✅ good                  |
-| **Web image (prod)** | `apps/web/Dockerfile` multi-stage, Node 20 slim, standalone output (gated on `BUILD_STANDALONE=true`)                                      | ✅ good                  |
-| **Web (compose)**    | Compose runs `node:20-slim` with an inline `pnpm install`/dev server (HMR), **not** the prod Dockerfile — an intentional dev-vs-prod split | ✅ by design (noted)     |
+| **Web image (prod)** | `apps/web/Dockerfile` multi-stage, Node 22 (digest-pinned `node:22-trixie-slim`), standalone output (gated on `BUILD_STANDALONE=true`)     | ✅ good                  |
+| **Web (compose)**    | Compose runs `node:22-slim` with an inline `pnpm install`/dev server (HMR), **not** the prod Dockerfile — an intentional dev-vs-prod split | ✅ by design (noted)     |
 | **Compose**          | Healthchecks on postgis, redis, api                                                                                                        | ✅ good                  |
 | **Compose**          | `depends_on: condition: service_healthy` for api→(postgis,redis)                                                                           | ✅ correct startup order |
 | **Compose**          | Named volumes for postgis/redis/node_modules                                                                                               | ✅ persistent + fast     |

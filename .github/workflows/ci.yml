@@ -458,3 +458,79 @@ jobs:
         run: |
           docker logs satrak-api 2>&1 | tail -n 80 || true
           docker logs satrak-web 2>&1 | tail -n 40 || true
+
+  # ---------------------------------------------------------------------------
+  # Image vulnerability scan (Trivy). Trivy only scans; scripts/ci/image_scan_gate.py holds the
+  # policy: fail on fixable HIGH/CRITICAL findings, honour documented unexpired exceptions
+  # (security/image-scan-exceptions.json), and report any scanner problem as SCAN INCOMPLETE
+  # (exit 2), which is never a pass. See docs/IMAGE_SCANNING.md.
+  # ---------------------------------------------------------------------------
+  image-scan:
+    name: Image scan (${{ matrix.key }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - key: api
+            context: apps/api
+            file: apps/api/Dockerfile
+            tag: satrak-api:ci
+          - key: web
+            context: .
+            file: apps/web/Dockerfile
+            tag: satrak-web:ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image (loaded into the local daemon)
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          push: false
+          load: true
+          tags: ${{ matrix.tag }}
+          cache-from: type=gha
+      - name: Scan with Trivy (a failure here is reported by the gate as SCAN INCOMPLETE)
+        id: trivy
+        # Not an escape hatch: the gate step below runs always and fails unless this step succeeded.
+        continue-on-error: true
+        # Pinned to a full commit SHA: tags of this action were force-pushed in the March 2026
+        # supply-chain incident. 57a97c7 is v0.35.0, listed by Aqua as unaffected; it installs
+        # Trivy v0.69.3 (also listed as unaffected) via a SHA-pinned setup-trivy.
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          image-ref: ${{ matrix.tag }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          format: json
+          output: trivy-${{ matrix.key }}.json
+          exit-code: "0"
+          timeout: 10m
+          version: v0.69.3
+      - name: Convert to SARIF
+        if: steps.trivy.outcome == 'success'
+        run: |
+          trivy convert --format sarif --output trivy-${{ matrix.key }}.sarif trivy-${{ matrix.key }}.json \
+            || { echo "SCAN INCOMPLETE: SARIF conversion failed"; exit 2; }
+          python3 scripts/ci/image_scan_gate.py sarif trivy-${{ matrix.key }}.sarif
+      - name: Gate (fixable HIGH/CRITICAL, exceptions, scanner failure)
+        if: always()
+        run: |
+          python3 scripts/ci/image_scan_gate.py gate \
+            --report trivy-${{ matrix.key }}.json \
+            --image-ref ${{ matrix.tag }} \
+            --image-key ${{ matrix.key }} \
+            --exceptions security/image-scan-exceptions.json \
+            --trivy-outcome "${{ steps.trivy.outcome }}"
+      - name: Keep the reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-${{ matrix.key }}
+          path: |
+            trivy-${{ matrix.key }}.json
+            trivy-${{ matrix.key }}.sarif
+          if-no-files-found: warn
+          retention-days: 30

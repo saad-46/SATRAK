@@ -94,6 +94,24 @@ def validate_transition(
         )
 
 
+def available_transitions(
+    current: CaseStatus, *, has_assignee: bool, finding_count: int
+) -> tuple[CaseStatus, ...]:
+    """Targets ``validate_transition`` would accept right now (assignment has its own operation)."""
+    accepted: list[CaseStatus] = []
+    for target in CaseStatus:
+        if target is CaseStatus.ASSIGNED:
+            continue
+        try:
+            validate_transition(
+                current, target, has_assignee=has_assignee, finding_count=finding_count
+            )
+        except InvalidStateTransition:
+            continue
+        accepted.append(target)
+    return tuple(accepted)
+
+
 def validate_assignment_change(current: CaseStatus) -> CaseStatus:
     """A case can be (re)assigned until it is closed; returns the status after assignment."""
     if current in TERMINAL:

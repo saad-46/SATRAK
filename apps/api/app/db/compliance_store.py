@@ -321,12 +321,16 @@ class ComplianceStore:
             raise NotFoundError("Property not found.", code="property_not_found")
         return row
 
-    async def list_properties(self, request: PageRequest) -> Page[dict[str, Any]]:
+    async def list_properties(
+        self, request: PageRequest, *, parcel_id: uuid.UUID | None = None
+    ) -> Page[dict[str, Any]]:
+        where = "WHERE (CAST(:p AS uuid) IS NULL OR parcel_id = :p)"
         return await self._page(
             "SELECT id, jurisdiction_id, parcel_id, property_ref, land_use, address_text,"
-            " created_at, updated_at FROM property ORDER BY property_ref, id",
-            "SELECT count(*) FROM property",
+            f" created_at, updated_at FROM property {where} ORDER BY property_ref, id",  # nosec B608
+            f"SELECT count(*) FROM property {where}",  # nosec B608
             request,
+            p=parcel_id,
         )
 
     # ------------------------------------------------------------------ permits
@@ -437,11 +441,17 @@ class ComplianceStore:
         return row
 
     async def list_permits(
-        self, request: PageRequest, *, match_status: str | None, status: str | None
+        self,
+        request: PageRequest,
+        *,
+        match_status: str | None,
+        status: str | None,
+        parcel_id: uuid.UUID | None = None,
     ) -> Page[dict[str, Any]]:
         where = (
             "WHERE (CAST(:m AS text) IS NULL OR match_status = :m)"
             " AND (CAST(:s AS text) IS NULL OR status = :s)"
+            " AND (CAST(:p AS uuid) IS NULL OR parcel_id = :p)"
         )
         return await self._page(
             f"SELECT {_PERMIT_COLUMNS} FROM building_permit {where} ORDER BY permit_number, id",  # nosec B608
@@ -449,6 +459,7 @@ class ComplianceStore:
             request,
             m=match_status,
             s=status,
+            p=parcel_id,
         )
 
     async def permit_history(self, permit_id: uuid.UUID) -> list[dict[str, Any]]:
@@ -586,11 +597,19 @@ class ComplianceStore:
         return row
 
     async def list_candidates(
-        self, request: PageRequest, *, status: str | None, source_type: str | None
+        self,
+        request: PageRequest,
+        *,
+        status: str | None,
+        source_type: str | None,
+        jurisdiction_id: uuid.UUID | None = None,
+        parcel_id: uuid.UUID | None = None,
     ) -> Page[dict[str, Any]]:
         where = (
             "WHERE (CAST(:s AS text) IS NULL OR status = :s)"
             " AND (CAST(:t AS text) IS NULL OR source_type = :t)"
+            " AND (CAST(:j AS uuid) IS NULL OR jurisdiction_id = :j)"
+            " AND (CAST(:p AS uuid) IS NULL OR parcel_id = :p)"
         )
         return await self._page(
             f"SELECT {_CANDIDATE_COLUMNS} FROM construction_change_candidate {where}"  # nosec B608
@@ -599,6 +618,8 @@ class ComplianceStore:
             request,
             s=status,
             t=source_type,
+            j=jurisdiction_id,
+            p=parcel_id,
         )
 
     async def candidate_reviews(self, candidate_id: uuid.UUID) -> list[dict[str, Any]]:
@@ -809,11 +830,23 @@ class ComplianceStore:
         return row
 
     async def list_cases(
-        self, request: PageRequest, *, status: str | None, assigned_to: uuid.UUID | None
+        self,
+        request: PageRequest,
+        *,
+        status: str | None,
+        assigned_to: uuid.UUID | None,
+        jurisdiction_id: uuid.UUID | None = None,
+        candidate_id: uuid.UUID | None = None,
+        parcel_id: uuid.UUID | None = None,
+        unassigned: bool = False,
     ) -> Page[dict[str, Any]]:
         where = (
             "WHERE (CAST(:s AS text) IS NULL OR status = :s)"
             " AND (CAST(:a AS uuid) IS NULL OR assigned_to = :a)"
+            " AND (CAST(:j AS uuid) IS NULL OR jurisdiction_id = :j)"
+            " AND (CAST(:c AS uuid) IS NULL OR candidate_id = :c)"
+            " AND (CAST(:p AS uuid) IS NULL OR parcel_id = :p)"
+            " AND (NOT CAST(:u AS boolean) OR assigned_to IS NULL)"
         )
         return await self._page(
             f"SELECT {_CASE_COLUMNS} FROM inspection_case {where}"  # nosec B608
@@ -822,6 +855,10 @@ class ComplianceStore:
             request,
             s=status,
             a=assigned_to,
+            j=jurisdiction_id,
+            c=candidate_id,
+            p=parcel_id,
+            u=unassigned,
         )
 
     async def _transition_row(
@@ -951,6 +988,103 @@ class ComplianceStore:
                 c=case_id,
             ),
         }
+
+    # ---------------------------------------------------------------- console reads
+    async def candidate_facts(self, candidate_id: uuid.UUID) -> dict[str, Any]:
+        """What the verification and release rules need to know, without locking the row."""
+        return _required(
+            await self._one(
+                "SELECT EXISTS (SELECT 1 FROM candidate_evaluation WHERE candidate_id = c.id)"
+                " AS evaluated,"
+                " EXISTS (SELECT 1 FROM inspection_case k WHERE k.candidate_id = c.id"
+                " AND k.status NOT IN ('resolved', 'dismissed')) AS has_open_case,"
+                " (SELECT k.id FROM inspection_case k WHERE k.candidate_id = c.id) AS case_id"
+                " FROM construction_change_candidate c WHERE c.id = :i",
+                i=candidate_id,
+            )
+        )
+
+    async def counts_by_status(self, table: str) -> dict[str, int]:
+        if table not in ("construction_change_candidate", "inspection_case"):
+            raise ValueError("unsupported table")
+        rows = await self._all(f"SELECT status, count(*) AS n FROM {table} GROUP BY status")  # nosec B608
+        return {r["status"]: int(r["n"]) for r in rows}
+
+    async def candidate_dashboard(self) -> dict[str, Any]:
+        awaiting = await self._scalar(
+            "SELECT count(*) FROM construction_change_candidate c WHERE c.status = 'confirmed'"
+            " AND NOT EXISTS (SELECT 1 FROM inspection_case k WHERE k.candidate_id = c.id)"
+        )
+        simulated = await self._scalar(
+            "SELECT count(*) FROM construction_change_candidate WHERE is_simulated"
+        )
+        by_jurisdiction = await self._all(
+            "SELECT jurisdiction_id, count(*) AS pending FROM construction_change_candidate"
+            " WHERE status IN ('unverified', 'needs_evidence')"
+            " GROUP BY jurisdiction_id ORDER BY pending DESC, jurisdiction_id LIMIT 50"
+        )
+        return {
+            "by_status": await self.counts_by_status("construction_change_candidate"),
+            "verified_awaiting_case": int(awaiting),
+            "simulated": int(simulated),
+            "pending_by_jurisdiction": by_jurisdiction,
+        }
+
+    async def case_dashboard(self) -> dict[str, Any]:
+        unassigned = await self._scalar(
+            "SELECT count(*) FROM inspection_case WHERE assigned_to IS NULL"
+            " AND status NOT IN ('resolved', 'dismissed')"
+        )
+        open_by_jurisdiction = await self._all(
+            "SELECT jurisdiction_id, count(*) AS open FROM inspection_case"
+            " WHERE status NOT IN ('resolved', 'dismissed')"
+            " GROUP BY jurisdiction_id ORDER BY open DESC, jurisdiction_id LIMIT 50"
+        )
+        return {
+            "by_status": await self.counts_by_status("inspection_case"),
+            "unassigned_open": int(unassigned),
+            "open_by_jurisdiction": open_by_jurisdiction,
+        }
+
+    async def recent_candidate_activity(self, limit: int) -> list[dict[str, Any]]:
+        return await self._all(
+            "SELECT 'candidate.reviewed' AS kind, created_at AS occurred_at,"
+            " reviewer_id AS actor_id, 'candidate' AS entity_type, candidate_id AS entity_id,"
+            " jurisdiction_id, decision || ' -> ' || resulting_status AS summary"
+            " FROM candidate_review ORDER BY created_at DESC LIMIT :n",
+            n=limit,
+        )
+
+    async def recent_case_activity(self, limit: int) -> list[dict[str, Any]]:
+        return await self._all(
+            "SELECT * FROM ("
+            " SELECT 'case.transitioned' AS kind, created_at AS occurred_at, actor_id,"
+            " 'case' AS entity_type, case_id AS entity_id, jurisdiction_id,"
+            " coalesce(from_status, 'new') || ' -> ' || to_status AS summary"
+            " FROM case_state_transition"
+            " UNION ALL"
+            " SELECT 'case.finding_added', created_at, author_id, 'case', case_id,"
+            " jurisdiction_id, 'field finding recorded' FROM case_finding"
+            ") a ORDER BY occurred_at DESC LIMIT :n",
+            n=limit,
+        )
+
+    async def recent_permit_activity(self, limit: int) -> list[dict[str, Any]]:
+        return await self._all(
+            "SELECT 'permit.' || event AS kind, created_at AS occurred_at, actor_id,"
+            " 'permit' AS entity_type, permit_id AS entity_id, jurisdiction_id,"
+            " event AS summary FROM permit_history ORDER BY created_at DESC LIMIT :n",
+            n=limit,
+        )
+
+    async def recent_parcel_activity(self, limit: int) -> list[dict[str, Any]]:
+        return await self._all(
+            "SELECT 'parcel.geometry_version' AS kind, created_at AS occurred_at,"
+            " recorded_by AS actor_id, 'parcel' AS entity_type, parcel_id AS entity_id,"
+            " jurisdiction_id, 'geometry version ' || version AS summary"
+            " FROM parcel_geometry_version ORDER BY created_at DESC LIMIT :n",
+            n=limit,
+        )
 
 
 def parse_date(value: str | date) -> date:

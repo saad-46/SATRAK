@@ -147,6 +147,19 @@ def decide_review(
     return ReviewOutcome(status=target, is_reversal=is_reversal)
 
 
+def available_decisions(
+    *, current: CandidateStatus, has_open_case: bool
+) -> tuple[ReviewDecision, ...]:
+    """Decisions the status rules would accept next (justification and provenance aside).
+
+    Mirrors ``decide_review`` so a client can offer only what the server could accept; the server
+    still validates every submission.
+    """
+    if current is CandidateStatus.CONFIRMED and has_open_case:
+        return ()
+    return tuple(d for d in ReviewDecision if _OUTCOME[d] is not current)
+
+
 def require_verified(status: CandidateStatus) -> None:
     """The release gate: only a confirmed candidate may enter an enforcement workflow."""
     if status is not CandidateStatus.CONFIRMED:

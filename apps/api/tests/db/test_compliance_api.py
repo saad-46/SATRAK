@@ -356,7 +356,10 @@ async def test_full_workflow_from_parcel_to_closed_case(env: Env) -> None:
         "case.transitioned", "case.finding_added", "release.denied",
     ):  # fmt: skip
         assert await env.events(event_type), event_type
-    assert len(await env.events("case.transitioned")) == 3
+    transitions = [
+        e for e in await env.events("case.transitioned") if e["details"]["case_id"] == case_id
+    ]
+    assert len(transitions) == 3  # the audit log outlives resets, so count only this case
     report = await env.audit.verify_chain()
     assert report.ok
 

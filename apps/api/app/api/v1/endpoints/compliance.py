@@ -14,7 +14,7 @@ the server and the database enforces it again with a trigger.
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Query, Request, status
@@ -24,7 +24,8 @@ from app.api.deps import CurrentUserDep, _request_id, get_access_store, require_
 from app.api.pagination import PageParamsDep
 from app.api.ratelimit import client_ip, limit_user
 from app.api.schemas import PageResponse
-from app.contexts.inspection.domain.case import CaseStatus
+from app.contexts.compliance.domain.candidate import CandidateStatus, available_decisions
+from app.contexts.inspection.domain.case import CaseStatus, available_transitions
 from app.core.authz import AccessContext, AccessStore
 from app.services.compliance_workflow import (
     TRANSITION_PERMISSION,
@@ -218,6 +219,23 @@ class CandidateOut(_Out):
     created_at: datetime
 
 
+class CandidateActions(_Out):
+    """What the server would accept for this caller right now. Informational: every submission is
+    validated again, and the database enforces the release gate regardless of this block."""
+
+    can_review: bool
+    allowed_decisions: list[Literal["confirm", "reject", "request_evidence"]]
+    confirm_blockers: list[Literal["evaluation", "provenance"]]
+    can_open_case: bool
+    open_case_blockers: list[str]
+
+
+class CandidateDetailOut(CandidateOut):
+    case_id: uuid.UUID | None
+    evaluated: bool
+    actions: CandidateActions
+
+
 class EvaluationOut(_Out):
     id: uuid.UUID
     seq: int
@@ -268,6 +286,18 @@ class CaseOut(_Out):
     updated_at: datetime
 
 
+class CaseActions(_Out):
+    """Transitions the server would accept for this caller now (informational, see above)."""
+
+    can_assign: bool
+    can_add_finding: bool
+    allowed_transitions: list[str]
+
+
+class CaseDetailOut(CaseOut):
+    actions: CaseActions
+
+
 class CaseAssign(BaseModel):
     assignee_id: uuid.UUID
     reason: str | None = Field(default=None, max_length=1000)
@@ -313,6 +343,15 @@ def _page(page: Page[Any], model: type[BaseModel]) -> PageResponse[Any]:
     return PageResponse[Any].from_page(
         Page(items=items, total=page.total, page=page.page, size=page.size)
     )
+
+
+async def _holds(
+    store: AccessStore, user_id: uuid.UUID, permission: str, jurisdiction_id: uuid.UUID
+) -> bool:
+    granted = await store.permitted_jurisdictions(
+        user_id=user_id, permission=permission, at=datetime.now(UTC)
+    )
+    return jurisdiction_id in granted
 
 
 def _scoped(ctx: AccessContext, row: dict[str, Any]) -> dict[str, Any]:
@@ -436,10 +475,12 @@ async def list_properties(
     params: PageParamsDep,
     service: ServiceDep,
     actor: ActorDep,
+    parcel_id: uuid.UUID | None = None,
     ctx: AccessContext = _need("property:read"),
 ) -> Any:
     request = params.to_page_request()
-    return _page(await service.read(ctx, actor, lambda s: s.list_properties(request)), PropertyOut)
+    page = await service.read(ctx, actor, lambda s: s.list_properties(request, parcel_id=parcel_id))
+    return _page(page, PropertyOut)
 
 
 @router.get("/properties/{property_id}", response_model=PropertyOut, tags=["properties"])
@@ -482,13 +523,16 @@ async def list_permits(
     permit_status: Annotated[
         Literal["approved", "suspended", "revoked", "closed"] | None, Query(alias="status")
     ] = None,
+    parcel_id: uuid.UUID | None = None,
     ctx: AccessContext = _need("permit:read"),
 ) -> Any:
     request = params.to_page_request()
     page = await service.read(
         ctx,
         actor,
-        lambda s: s.list_permits(request, match_status=match_status, status=permit_status),
+        lambda s: s.list_permits(
+            request, match_status=match_status, status=permit_status, parcel_id=parcel_id
+        ),
     )
     return _page(page, PermitOut)
 
@@ -586,25 +630,76 @@ async def list_candidates(
         Query(alias="status"),
     ] = None,
     source_type: Literal["ai_detection", "manual_report", "imported"] | None = None,
+    jurisdiction_id: uuid.UUID | None = None,
+    parcel_id: uuid.UUID | None = None,
     ctx: AccessContext = _need("candidate:read"),
 ) -> Any:
     request = params.to_page_request()
     page = await service.read(
         ctx,
         actor,
-        lambda s: s.list_candidates(request, status=candidate_status, source_type=source_type),
+        lambda s: s.list_candidates(
+            request,
+            status=candidate_status,
+            source_type=source_type,
+            jurisdiction_id=jurisdiction_id,
+            parcel_id=parcel_id,
+        ),
     )
     return _page(page, CandidateOut)
 
 
-@router.get("/candidates/{candidate_id}", response_model=CandidateOut, tags=["candidates"])
+@router.get("/candidates/{candidate_id}", response_model=CandidateDetailOut, tags=["candidates"])
 async def get_candidate(
     candidate_id: uuid.UUID,
+    user: CurrentUserDep,
+    store: Annotated[AccessStore, Depends(get_access_store)],
     service: ServiceDep,
     actor: ActorDep,
     ctx: AccessContext = _need("candidate:read"),
 ) -> Any:
-    return _scoped(ctx, await service.read(ctx, actor, lambda s: s.get_candidate(candidate_id)))
+    async def load(s: Any) -> dict[str, Any]:
+        row = await s.get_candidate(candidate_id)
+        return {**row, **await s.candidate_facts(candidate_id)}
+
+    candidate = _scoped(ctx, await service.read(ctx, actor, load))
+    jurisdiction = candidate["jurisdiction_id"]
+    status_ = CandidateStatus(candidate["status"])
+    can_review = await _holds(store, user.id, "finding:verify", jurisdiction)
+    decisions = (
+        available_decisions(current=status_, has_open_case=candidate["has_open_case"])
+        if can_review
+        else ()
+    )
+    blockers: list[str] = []
+    if not candidate["evaluated"]:
+        blockers.append("evaluation")
+    if not candidate["imagery_refs"]:
+        blockers.append("provenance")
+    open_case_blockers: list[str] = []
+    if status_ is not CandidateStatus.CONFIRMED:
+        open_case_blockers.append("not_verified")
+    if not candidate["evaluated"]:
+        open_case_blockers.append("not_evaluated")
+    if candidate["case_id"] is not None:
+        open_case_blockers.append("case_exists")
+    can_create = await _holds(store, user.id, "case:create", jurisdiction)
+    if not can_create:
+        open_case_blockers.append("no_permission")
+    return {
+        **candidate,
+        "actions": {
+            "can_review": can_review,
+            "allowed_decisions": [
+                d.value
+                for d in decisions
+                if d.value != "confirm" or not blockers  # confirm needs evaluation + provenance
+            ],
+            "confirm_blockers": blockers,
+            "can_open_case": not open_case_blockers,
+            "open_case_blockers": open_case_blockers,
+        },
+    }
 
 
 @router.post(
@@ -703,25 +798,65 @@ async def list_cases(
         Query(alias="status"),
     ] = None,
     assigned_to: uuid.UUID | None = None,
+    unassigned: bool = False,
+    jurisdiction_id: uuid.UUID | None = None,
+    candidate_id: uuid.UUID | None = None,
+    parcel_id: uuid.UUID | None = None,
     ctx: AccessContext = _need("case:read"),
 ) -> Any:
     request = params.to_page_request()
     page = await service.read(
         ctx,
         actor,
-        lambda s: s.list_cases(request, status=case_status, assigned_to=assigned_to),
+        lambda s: s.list_cases(
+            request,
+            status=case_status,
+            assigned_to=assigned_to,
+            jurisdiction_id=jurisdiction_id,
+            candidate_id=candidate_id,
+            parcel_id=parcel_id,
+            unassigned=unassigned,
+        ),
     )
     return _page(page, CaseOut)
 
 
-@router.get("/cases/{case_id}", response_model=CaseOut, tags=["cases"])
+@router.get("/cases/{case_id}", response_model=CaseDetailOut, tags=["cases"])
 async def get_case(
     case_id: uuid.UUID,
+    user: CurrentUserDep,
+    store: Annotated[AccessStore, Depends(get_access_store)],
     service: ServiceDep,
     actor: ActorDep,
     ctx: AccessContext = _need("case:read"),
 ) -> Any:
-    return _scoped(ctx, await service.read(ctx, actor, lambda s: s.get_case(case_id)))
+    async def load(s: Any) -> dict[str, Any]:
+        row = await s.get_case(case_id)
+        return {**row, "finding_count": await s.finding_count(case_id)}
+
+    case = _scoped(ctx, await service.read(ctx, actor, load))
+    jurisdiction = case["jurisdiction_id"]
+    current = CaseStatus(case["status"])
+    targets = available_transitions(
+        current, has_assignee=case["assigned_to"] is not None, finding_count=case["finding_count"]
+    )
+    allowed = [
+        t.value
+        for t in targets
+        if await _holds(store, user.id, TRANSITION_PERMISSION[t], jurisdiction)
+    ]
+    terminal = current in (CaseStatus.RESOLVED, CaseStatus.DISMISSED)
+    return {
+        **case,
+        "actions": {
+            "can_assign": not terminal
+            and await _holds(store, user.id, "case:assign", jurisdiction),
+            "can_add_finding": not terminal
+            and current is not CaseStatus.CREATED
+            and await _holds(store, user.id, "case:update", jurisdiction),
+            "allowed_transitions": allowed,
+        },
+    }
 
 
 @router.get("/cases/{case_id}/history", response_model=CaseHistoryOut, tags=["cases"])

@@ -1,0 +1,16 @@
+[project]
+name = "satrak-py-imagery"
+version = "0.0.0"
+description = "SATRAK shared imagery-provider abstractions — scaffold, no implementation yet."
+requires-python = ">=3.12"
+readme = "README.md"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/py_imagery"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]

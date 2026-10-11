@@ -122,3 +122,7 @@ next-env.d.ts
 *.bak
 *.tmp
 .cache/
+
+# Local Redis snapshots (never commit)
+dump.rdb
+*.rdb

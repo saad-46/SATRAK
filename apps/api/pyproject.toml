@@ -19,6 +19,8 @@ dependencies = [
     "redis>=5.2.0",
     "structlog>=24.4.0",
     "orjson>=3.10.0",
+    "PyJWT[crypto]>=2.10.0,<3",  # OIDC access-token validation (ADR-0013)
+    "httpx>=0.28.0",            # OIDC discovery / JWKS fetch (also used by tests)
 ]
 
 [project.optional-dependencies]
@@ -26,7 +28,6 @@ dev = [
     "pytest>=8.3.0",
     "pytest-asyncio>=0.25.0",
     "pytest-cov>=6.0.0",
-    "httpx>=0.28.0",
     "ruff>=0.8.0",         # single tool: lint + format + import-sort
     "mypy>=1.14.0",
     "bandit>=1.8.0",       # SAST
@@ -77,7 +78,10 @@ disallow_untyped_decorators = false
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "-ra --cov=app --cov-report=term-missing"
+addopts = "-ra --strict-markers --cov=app --cov-report=term-missing"
+markers = [
+    "integration: needs a real PostgreSQL/PostGIS (SATRAK_TEST_DATABASE_URL) and optionally Redis (SATRAK_TEST_REDIS_URL)",
+]
 
 [tool.coverage.run]
 source = ["app"]
@@ -124,8 +128,78 @@ type = "forbidden"
 source_modules = ["app.contexts"]
 forbidden_modules = ["app.api", "app.db", "app.core", "app.main"]
 
+# The bypass-capable (BYPASSRLS) database role is for audited maintenance only (ADR-0011).
+[[tool.importlinter.contracts]]
+name = "The web layer never uses privileged database access"
+type = "forbidden"
+source_modules = ["app.api", "app.contexts", "app.main"]
+forbidden_modules = ["app.db.privileged"]
+
+# The all-tenants repository scope is for system jobs, never request handling (ADR-0011).
+[[tool.importlinter.contracts]]
+name = "The web layer never uses the system-wide repository scope"
+type = "forbidden"
+source_modules = ["app.api", "app.main"]
+forbidden_modules = ["app.shared.domain.system_scope"]
+
+# No request path can start Earth Observation pipeline work today. A future endpoint that
+# triggers it must first derive the caller's jurisdiction and put it in the task payload, so
+# this contract is removed deliberately, in review, not by accident (ADR-0011).
+[[tool.importlinter.contracts]]
+name = "The web layer does not reach the pipeline services"
+type = "forbidden"
+source_modules = ["app.api", "app.main"]
+forbidden_modules = [
+    "app.contexts.earth_observation.application.acquisition",
+    "app.contexts.earth_observation.application.ingestion",
+    "app.contexts.earth_observation.application.metadata",
+    "app.contexts.earth_observation.application.preprocessing",
+    "app.contexts.earth_observation.application.tiling",
+    "app.contexts.earth_observation.application.jobs",
+]
+
 [[tool.importlinter.contracts]]
 name = "Core infrastructure does not depend on API or contexts"
 type = "forbidden"
 source_modules = ["app.core"]
 forbidden_modules = ["app.api", "app.contexts", "app.main"]
+
+# Bounded contexts never import each other (ARCHITECTURE.md: "they collaborate via
+# ids + domain events, not direct references"). This enforces that rule — including the
+# ADR-0010 requirement that Earth Observation and Drone stay independent, communicating
+# only through public interfaces and integration events. Add new contexts here as they
+# are created.
+# The Earth Observation domain layer stays pure: it may depend on the shared kernel
+# and its own domain, but never on its application/infrastructure/interfaces layers
+# (Clean Architecture — dependencies point inward). Locked in before the API layer is
+# added so the boundary can't silently erode. Generalize to other contexts as they
+# grow their own layered structure.
+[[tool.importlinter.contracts]]
+name = "Earth Observation domain layer stays pure"
+type = "forbidden"
+source_modules = ["app.contexts.earth_observation.domain"]
+forbidden_modules = [
+    "app.contexts.earth_observation.application",
+    "app.contexts.earth_observation.infrastructure",
+    "app.contexts.earth_observation.interfaces",
+]
+
+[[tool.importlinter.contracts]]
+name = "Bounded contexts are mutually independent"
+type = "independence"
+modules = [
+    "app.contexts.core",
+    "app.contexts.identity",
+    "app.contexts.organization",
+    "app.contexts.earth_observation",
+    "app.contexts.drone",
+    "app.contexts.gis",
+    "app.contexts.property",
+    "app.contexts.permit",
+    "app.contexts.inspection",
+    "app.contexts.compliance",
+    "app.contexts.analytics",
+    "app.contexts.reporting",
+    "app.contexts.administration",
+    "app.contexts.notification",
+]

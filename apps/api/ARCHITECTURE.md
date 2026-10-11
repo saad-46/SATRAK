@@ -52,7 +52,8 @@ app/
 │   ├── core/domain/            # generic entities: Document, Tag, Comment, Task, Notification, ...
 │   ├── identity/domain/        # UserProfile, Role, Permission
 │   ├── organization/domain/    # Organization, Department
-│   └── {property,permit,inspection,satellite,gis,drone,
+│   ├── earth_observation/       # EO imagery platform (satellite + aerial) — scaffolded (Epic 3, ADR-0005/0010)
+│   └── {property,permit,inspection,gis,drone,
 │        compliance,analytics,reporting,administration,notification}/   # reserved
 ├── db/                         # Base + ORM mixins (BaseEntity/AuditEntity/VersionedEntity), session
 ├── core/                       # config, logging, middleware, errors, problem_details, metrics, openapi

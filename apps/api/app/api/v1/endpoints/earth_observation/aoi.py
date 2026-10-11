@@ -1,0 +1,88 @@
+"""AOI search, details, and history (Epic 3 Story 19).
+
+AOI listing is low-cardinality (wards/cities), so the in-memory adapter lists then
+paginates; a future SQL adapter pushes paging down. An AOI's history is the timeline of
+available scenes over its footprint.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, Query
+
+from app.api.pagination import PageParamsDep
+from app.api.ratelimit import limit_user
+from app.api.schemas import PageResponse
+from app.api.v1.endpoints.earth_observation.deps import (
+    AoiReadAccess,
+    EoDep,
+    SceneReadAccess,
+    default_window,
+    load_owned,
+)
+from app.api.v1.endpoints.earth_observation.schemas import (
+    AoiDetail,
+    AoiSummary,
+    BoundingBoxSchema,
+    SceneSummary,
+    TimelineResponse,
+)
+from app.shared.domain.scope import TenantScope
+from app.shared.pagination import Page
+
+router = APIRouter(tags=["earth-observation: aoi"])
+
+
+@router.get("", response_model=PageResponse[AoiSummary], summary="Search AOIs")
+async def list_aois(
+    eo: EoDep,
+    access: AoiReadAccess,
+    params: PageParamsDep,
+    active_only: bool = Query(True, description="Only ACTIVE AOIs"),
+) -> PageResponse[AoiSummary]:
+    request = params.to_page_request()
+    # The repository applies the caller's scope before paging, so pages are never short.
+    window = await eo.aois.list_in_scope(
+        scope=access.scope, active_only=active_only, limit=request.limit, offset=request.offset
+    )
+    total = await eo.aois.count_in_scope(scope=access.scope, active_only=active_only)
+    page = Page.create([AoiSummary.from_domain(aoi) for aoi in window], total, request)
+    return PageResponse.from_page(page)
+
+
+@router.get("/{aoi_id}", response_model=AoiDetail, summary="AOI details")
+async def get_aoi(aoi_id: UUID, eo: EoDep, access: AoiReadAccess) -> AoiDetail:
+    aoi = await load_owned(eo.scoped_aois(access.scope), aoi_id, access, "AOI")
+    return AoiDetail.from_domain(aoi)
+
+
+@router.get(
+    "/{aoi_id}/timeline",
+    response_model=TimelineResponse,
+    summary="AOI imagery history",
+    dependencies=[Depends(limit_user("eo_search_user"))],
+)
+async def get_aoi_timeline(
+    aoi_id: UUID,
+    eo: EoDep,
+    access: AoiReadAccess,
+    scene_access: SceneReadAccess,
+    from_: datetime | None = Query(None, alias="from"),
+    to: datetime | None = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+) -> TimelineResponse:
+    aoi = await load_owned(eo.scoped_aois(access.scope), aoi_id, access, "AOI")
+    scene_access.require(aoi.jurisdiction_id)
+    scenes = await eo.timeline.timeline(
+        area=aoi.bounding_box,
+        window=default_window(from_, to),
+        limit=limit,
+        scope=TenantScope(frozenset({aoi.jurisdiction_id})),
+    )
+    return TimelineResponse(
+        area=BoundingBoxSchema.from_domain(aoi.bounding_box),
+        count=len(scenes),
+        scenes=[SceneSummary.from_domain(scene) for scene in scenes],
+    )

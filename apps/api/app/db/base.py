@@ -16,7 +16,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, MetaData, Uuid, func
+from sqlalchemy import Boolean, DateTime, Integer, MetaData, Uuid, func, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 # Predictable names for indexes/constraints -> clean, reviewable migrations.
@@ -39,7 +39,9 @@ class Base(DeclarativeBase):
 class UUIDPrimaryKeyMixin:
     """Adds a UUID primary key (preferred over serial ints for distributed data)."""
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()")
+    )
 
 
 class TimestampMixin:
@@ -67,7 +69,9 @@ class VersionMixin:
     setting ``__mapper_args__ = {"version_id_col": <table>.version}``.
     """
 
-    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    version: Mapped[int] = mapped_column(
+        Integer, default=1, server_default=text("1"), nullable=False
+    )
 
 
 class SoftDeleteMixin:
@@ -76,7 +80,9 @@ class SoftDeleteMixin:
     Legal defensibility requires retaining history; deletes are logical.
     """
 
-    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_deleted: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"), nullable=False
+    )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 

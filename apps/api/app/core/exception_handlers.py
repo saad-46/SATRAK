@@ -17,8 +17,10 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.core.authz import AccessDeniedError
 from app.core.exceptions import DOMAIN_ERROR_STATUS, AppError
 from app.core.problem_details import PROBLEM_CONTENT_TYPE, ProblemDetail
+from app.core.security_audit import SecurityEvent
 from app.shared.domain.errors import DomainError
 
 logger = structlog.get_logger("api.error")
@@ -32,15 +34,46 @@ def _title_from_code(code: str) -> str:
     return code.replace("_", " ").title()
 
 
-def _problem_response(problem: ProblemDetail) -> JSONResponse:
+def _problem_response(
+    problem: ProblemDetail, headers: dict[str, str] | None = None
+) -> JSONResponse:
     return JSONResponse(
         status_code=problem.status,
         content=problem.model_dump(exclude_none=True),
         media_type=PROBLEM_CONTENT_TYPE,
+        headers=headers,
     )
 
 
+async def _audit_denial(request: Request, event: SecurityEvent) -> None:
+    """Record ``access.denied``. The request is refused whatever happens here, so a failing
+    audit store is logged loudly rather than turned into a different response."""
+    log = getattr(request.app.state, "audit", None)
+    enriched = SecurityEvent(
+        event_type=event.event_type,
+        outcome=event.outcome,
+        actor_user_id=event.actor_user_id,
+        jurisdiction_id=event.jurisdiction_id,
+        permission=event.permission,
+        ip=event.ip or (request.client.host if request.client else None),
+        request_id=event.request_id or _current_request_id(),
+        details={**event.details, "method": request.method, "path": request.url.path[:200]},
+        id=event.id,
+        occurred_at=event.occurred_at,
+    )
+    try:
+        if log is None:
+            raise RuntimeError("no audit log configured")
+        await log.record(enriched)
+    except Exception as audit_exc:
+        logger.error(
+            "audit_write_failed", event_type=event.event_type, error=type(audit_exc).__name__
+        )
+
+
 async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
+    if isinstance(exc, AccessDeniedError):
+        await _audit_denial(request, exc.security_event)
     if exc.status_code >= 500:
         logger.error("app_error", code=exc.code, message=exc.message)
     return _problem_response(
@@ -52,7 +85,8 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
             code=exc.code,
             request_id=_current_request_id(),
             errors=[exc.details] if exc.details else None,
-        )
+        ),
+        headers=exc.headers or None,
     )
 
 

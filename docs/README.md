@@ -13,12 +13,22 @@ ADRs rather than by editing their history.
 
 ## Architecture Decision Records
 
-| ADR                                                         | Decision                                              |
-| ----------------------------------------------------------- | ----------------------------------------------------- |
-| [ADR-0001](adr/0001-monorepo-and-engineering-foundation.md) | Monorepo & engineering foundation                     |
-| [ADR-0002](adr/0002-core-domain-platform.md)                | Core domain platform (shared kernel + contexts)       |
-| [ADR-0003](adr/0003-modular-monolith-first.md)              | Modular monolith first & microservice extraction path |
-| [ADR-0004](adr/0004-ruff-formatting-toolchain.md)           | Ruff as the single lint/format/import toolchain       |
+| ADR                                                                            | Decision                                                                   |
+| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| [ADR-0001](adr/0001-monorepo-and-engineering-foundation.md)                    | Monorepo & engineering foundation                                          |
+| [ADR-0002](adr/0002-core-domain-platform.md)                                   | Core domain platform (shared kernel + contexts)                            |
+| [ADR-0003](adr/0003-modular-monolith-first.md)                                 | Modular monolith first & microservice extraction path                      |
+| [ADR-0004](adr/0004-ruff-formatting-toolchain.md)                              | Ruff as the single lint/format/import toolchain                            |
+| [ADR-0005](adr/0005-earth-observation-bounded-context.md)                      | Earth Observation as one bounded context (generalizes `satellite`)         |
+| [ADR-0006](adr/0006-raster-references-in-db-cog-in-object-storage.md)          | Raster references in PostGIS, pixels (COG) in object storage               |
+| [ADR-0007](adr/0007-capability-driven-provider-abstraction.md)                 | Capability-driven imagery-provider abstraction                             |
+| [ADR-0008](adr/0008-celery-behind-taskqueue-port-for-eo-jobs.md)               | Celery (beat + chains) behind the TaskQueue port for EO jobs               |
+| [ADR-0009](adr/0009-coarse-public-integration-events-for-earth-observation.md) | Coarse public integration events for Earth Observation                     |
+| [ADR-0010](adr/0010-context-naming-review-earth-observation-vs-satellite.md)   | Context naming review: `earth_observation` affirmed, drone scope corrected |
+| [ADR-0011](adr/0011-tenancy-jurisdiction-rows-with-rls.md)                     | Tenancy: jurisdiction rows + RLS (exception to PRD §3.3.2 default)         |
+| [ADR-0012](adr/0012-canonical-geospatial-storage-and-crs-roles.md)             | Canonical geospatial storage and CRS roles                                 |
+| [ADR-0013](adr/0013-authentication-token-validation-and-revocation.md)         | Authentication: OIDC validation and revocation (proposed)                  |
+| [ADR-0014](adr/0014-officer-verification-gate-for-ai-findings.md)              | Officer verification gate for AI findings                                  |
 
 Contributor and release process docs live in
 [CONTRIBUTING.md](../CONTRIBUTING.md), [onboarding/](onboarding/), and

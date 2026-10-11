@@ -1,0 +1,26 @@
+# Build context for apps/web/Dockerfile (context = repository root). Docker reads only the
+# .dockerignore at the context root, so apps/web/.dockerignore does not apply to that build.
+# Keep local state, secrets and other apps' files out of the image and out of the layer cache.
+**/.git
+.github
+**/node_modules
+**/.next
+**/.turbo
+**/coverage
+**/playwright-report
+**/test-results
+**/.env
+**/.env.*
+!**/.env.example
+**/*.log
+**/.DS_Store
+**/dump.rdb
+# Python app and caches: not part of the web image (pnpm ignores directories without package.json).
+apps/api
+**/__pycache__
+**/.venv
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+docs
+infra

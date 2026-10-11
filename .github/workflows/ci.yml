@@ -61,11 +61,18 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: apps/api/pyproject.toml
+          cache-dependency-path: apps/api/requirements-dev.lock
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install --require-hashes -r requirements-dev.lock
+          pip install --no-deps -e .
+      - name: Dependency lock is current
+        run: |
+          pip install pip-tools==7.6.2
+          pip-compile --generate-hashes --quiet --strip-extras --output-file=requirements.lock pyproject.toml
+          pip-compile --extra dev --generate-hashes --quiet --strip-extras --output-file=requirements-dev.lock pyproject.toml
+          git diff --exit-code -- requirements.lock requirements-dev.lock
       - name: Ruff (lint)
         run: ruff check .
       - name: Ruff (format check)
@@ -98,18 +105,18 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: apps/api/pyproject.toml
+          cache-dependency-path: apps/api/requirements-dev.lock
       - name: Install security tools
         working-directory: apps/api
         run: |
           python -m pip install --upgrade pip
-          pip install bandit pip-audit
+          pip install --require-hashes -r requirements-dev.lock
       - name: Bandit (SAST)
         working-directory: apps/api
         run: bandit -q -c pyproject.toml -r app
       - name: pip-audit (dependency CVEs)
         working-directory: apps/api
-        run: pip-audit --skip-editable
+        run: pip-audit --require-hashes --disable-pip -r requirements-dev.lock
       - name: Gitleaks (secret scan)
         uses: gitleaks/gitleaks-action@v2
         env:
@@ -144,11 +151,12 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: apps/api/pyproject.toml
+          cache-dependency-path: apps/api/requirements-dev.lock
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install --require-hashes -r requirements-dev.lock
+          pip install --no-deps -e .
       - name: Alembic upgrade head
         env:
           SATRAK_API_DATABASE_URL: postgresql+asyncpg://satrak:satrak_ci@localhost:5432/satrak
@@ -157,6 +165,75 @@ jobs:
         env:
           SATRAK_API_DATABASE_URL: postgresql+asyncpg://satrak:satrak_ci@localhost:5432/satrak
         run: alembic downgrade base
+
+  # ---------------------------------------------------------------------------
+  # Integration: roles + row-level security + real Redis rate limiting
+  # ---------------------------------------------------------------------------
+  integration:
+    name: Integration (PostGIS roles/RLS · Redis)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    services:
+      postgis:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: satrak_ci_superuser
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: satrak_ci_superuser
+      # Disposable CI-only credentials for a service container that is destroyed with the job.
+      SATRAK_TEST_DATABASE_URL: postgresql+asyncpg://satrak_owner:satrak_ci_owner@localhost:5432/satrak_test
+      SATRAK_TEST_REDIS_URL: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/api/requirements-dev.lock
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --require-hashes -r requirements-dev.lock
+          pip install --no-deps -e .
+      - name: Provision roles and the test database
+        run: |
+          psql -v ON_ERROR_STOP=1 -f ../../infra/db/roles.sql
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE satrak_owner LOGIN CREATEDB NOSUPERUSER NOBYPASSRLS PASSWORD 'satrak_ci_owner';
+          GRANT satrak_app, satrak_admin TO satrak_owner;
+          CREATE DATABASE satrak_test OWNER satrak_owner;
+          SQL
+          psql -v ON_ERROR_STOP=1 -d satrak_test -c "CREATE EXTENSION IF NOT EXISTS postgis"
+          # Migration 0001 also asks for postgis_topology, which only a superuser may create.
+          psql -v ON_ERROR_STOP=1 -d satrak_test -c "CREATE EXTENSION IF NOT EXISTS postgis_topology"
+      - name: Pytest with database and Redis (+ coverage gate)
+        run: pytest --cov-report=xml
+      - name: Fail if tests were skipped for a missing database, roles or Redis
+        run: |
+          pytest -q --no-cov -rs tests/db tests/core/test_ratelimit.py -p no:cacheprovider 2>&1 | tee skips.txt
+          ! grep -Ei "SKIPPED.*(SATRAK_TEST|roles|redis)" skips.txt
 
   # ---------------------------------------------------------------------------
   # Docker build verification (does not push)
@@ -184,3 +261,160 @@ jobs:
           tags: satrak-web:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # ---------------------------------------------------------------------------
+  # Container smoke tests: run the built images with CI-only, synthetic configuration.
+  # Proves the images start, answer probes and run as non-root, and that production
+  # startup guards fire inside the image. It does NOT prove tenant isolation against a real
+  # deployment, IdP-side revocation (R4) or network controls (R2/R3); see
+  # docs/audit/PRODUCTION_SECURITY_EVIDENCE.md.
+  # ---------------------------------------------------------------------------
+  container-smoke:
+    name: Container smoke tests
+    runs-on: ubuntu-latest
+    services:
+      postgis:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: satrak_ci_superuser
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      # Disposable CI-only credentials for service containers destroyed with the job.
+      PGPASSWORD: satrak_ci_superuser
+      MIGRATOR_URL: postgresql+asyncpg://satrak_migrator:ci_migrator_only@localhost:5432/satrak_smoke
+      APP_URL: postgresql+asyncpg://satrak_app:ci_app_only@localhost:5432/satrak_smoke
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build API image (loaded into the local daemon)
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/api
+          push: false
+          load: true
+          tags: satrak-api:ci
+          cache-from: type=gha
+      - name: Provision roles and database (synthetic)
+        run: |
+          psql -v ON_ERROR_STOP=1 -f infra/db/roles.sql
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          ALTER ROLE satrak_migrator PASSWORD 'ci_migrator_only';
+          ALTER ROLE satrak_app PASSWORD 'ci_app_only';
+          CREATE DATABASE satrak_smoke OWNER satrak_migrator;
+          SQL
+          psql -v ON_ERROR_STOP=1 -d satrak_smoke -c "CREATE EXTENSION IF NOT EXISTS postgis" \
+            -c "CREATE EXTENSION IF NOT EXISTS postgis_topology"
+      - name: Migrate using the API image
+        run: |
+          docker run --rm --network host \
+            -e SATRAK_API_MIGRATION_DATABASE_URL="$MIGRATOR_URL" \
+            satrak-api:ci alembic upgrade head
+      - name: API starts with production settings and synthetic config
+        run: |
+          # The issuer is deliberately unreachable (.invalid): startup must not need an IdP.
+          docker run -d --name satrak-api --network host \
+            -e SATRAK_API_ENVIRONMENT=production \
+            -e SATRAK_API_DATABASE_URL="$APP_URL" \
+            -e SATRAK_API_REDIS_URL=redis://localhost:6379/0 \
+            -e SATRAK_API_AUTH_ISSUER=https://idp.invalid/realms/ci \
+            -e SATRAK_API_AUTH_AUDIENCES=satrak-api-ci \
+            -e 'SATRAK_API_CORS_ORIGINS=["https://app.invalid"]' \
+            satrak-api:ci
+          for i in $(seq 1 60); do
+            [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/api/v1/health/live)" = 200 ] && break
+            [ "$(docker inspect -f '{{.State.Running}}' satrak-api)" = true ] || break
+            sleep 1
+          done
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/api/v1/health/live)" = 200
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/api/v1/health/ready)" = 200
+      - name: API process is not root
+        run: |
+          uid="$(docker exec satrak-api id -u)"; user="$(docker exec satrak-api id -un)"
+          echo "uid=$uid user=$user"
+          test "$uid" != 0 && test "$user" = satrak
+          test "$(docker inspect -f '{{.Config.User}}' satrak-api)" = satrak
+          # Every process in the container, not only the entrypoint.
+          ! docker top satrak-api -eo user | tail -n +2 | grep -qx root
+      - name: Image HEALTHCHECK reports healthy
+        run: |
+          for i in $(seq 1 60); do
+            s="$(docker inspect -f '{{.State.Health.Status}}' satrak-api)"
+            [ "$s" = healthy ] && break
+            sleep 3
+          done
+          echo "health=$s"; test "$s" = healthy
+      - name: Unsafe configuration is refused (exits non-zero)
+        run: |
+          # The schema owner as the application role would bypass row-level security.
+          set +e
+          out="$(docker run --rm --network host \
+            -e SATRAK_API_ENVIRONMENT=production \
+            -e SATRAK_API_DATABASE_URL="$MIGRATOR_URL" \
+            -e SATRAK_API_REDIS_URL=redis://localhost:6379/0 \
+            -e SATRAK_API_AUTH_ISSUER=https://idp.invalid/realms/ci \
+            -e SATRAK_API_AUTH_AUDIENCES=satrak-api-ci \
+            -e 'SATRAK_API_CORS_ORIGINS=["https://app.invalid"]' \
+            satrak-api:ci 2>&1)"; code=$?
+          set -e
+          echo "exit=$code"; echo "$out" | tail -n 5
+          test "$code" != 0
+          echo "$out" | grep -q "unsafe database role"
+          # A production configuration with no database at all is also refused.
+          set +e
+          out="$(docker run --rm --network host \
+            -e SATRAK_API_ENVIRONMENT=production \
+            -e SATRAK_API_AUTH_ISSUER=https://idp.invalid/realms/ci \
+            -e SATRAK_API_AUTH_AUDIENCES=satrak-api-ci \
+            satrak-api:ci 2>&1)"; code=$?
+          set -e
+          echo "exit=$code"; echo "$out" | tail -n 5
+          test "$code" != 0
+          echo "$out" | grep -q "database_url is required"
+      - name: Build Web image (loaded into the local daemon)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          push: false
+          load: true
+          tags: satrak-web:ci
+          cache-from: type=gha
+      - name: Web starts as non-root and serves /
+        run: |
+          docker run -d --name satrak-web -p 3000:3000 satrak-web:ci
+          for i in $(seq 1 30); do
+            code="$(curl -s -o web.html -w '%{http_code}' http://localhost:3000/ || true)"
+            [ "$code" = 200 ] && break
+            [ "$(docker inspect -f '{{.State.Running}}' satrak-web)" = true ] || break
+            sleep 1
+          done
+          echo "status=$code"; test "$code" = 200
+          grep -q SATRAK web.html
+          uid="$(docker exec satrak-web id -u)"; user="$(docker exec satrak-web id -un)"
+          echo "uid=$uid user=$user"
+          test "$uid" != 0 && test "$user" = nextjs
+          ! docker top satrak-web -eo user | tail -n +2 | grep -qx root
+      - name: Container logs on failure
+        if: failure()
+        run: |
+          docker logs satrak-api 2>&1 | tail -n 80 || true
+          docker logs satrak-web 2>&1 | tail -n 40 || true

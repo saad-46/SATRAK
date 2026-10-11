@@ -1,3 +1,4 @@
+import type { Route } from "next";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { env } from "@/env";
@@ -20,6 +21,9 @@ export default function HomePage() {
       </p>
       <div className="flex gap-3">
         <Button asChild>
+          <Link href={"/dashboard" as Route}>Officer console</Link>
+        </Button>
+        <Button asChild variant="outline">
           <Link href="/system">System status</Link>
         </Button>
         <Button asChild variant="outline">

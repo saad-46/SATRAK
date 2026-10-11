@@ -26,7 +26,6 @@ from app.api.ratelimit import client_ip, limit_user
 from app.api.schemas import PageResponse
 from app.contexts.inspection.domain.case import CaseStatus
 from app.core.authz import AccessContext, AccessStore
-from app.core.exceptions import ServiceUnavailableError
 from app.services.compliance_workflow import (
     TRANSITION_PERMISSION,
     Actor,
@@ -42,11 +41,8 @@ Version = Annotated[int, Field(ge=1, description="The version last read (optimis
 
 # --------------------------------------------------------------------- dependencies
 def get_compliance_service(request: Request) -> ComplianceService:
-    sessions = getattr(request.app.state, "sessions", None)
-    if sessions is None:
-        raise ServiceUnavailableError("The database is not available.", code="database_unavailable")
     return ComplianceService(
-        sessions,
+        getattr(request.app.state, "sessions", None),
         getattr(request.app.state, "audit", None),
         getattr(request.app.state, "access", None),
     )

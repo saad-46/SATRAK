@@ -7,7 +7,9 @@ caller's scope fails loudly instead of silently inserting nothing.
 
 All SQL is parameterised; GeoJSON geometry travels as a bound parameter and is parsed by PostGIS,
 which is the authority for spatial validity, areas (computed on the geography type, so in square
-metres) and overlap tests. History tables are append-only (enforced by triggers, migration 0005).
+metres) and overlap tests. Statements are assembled from constant fragments only (hence the
+``nosec B608`` markers); no request value is ever interpolated into SQL text.
+History tables are append-only (enforced by triggers, migration 0005).
 """
 
 from __future__ import annotations
@@ -25,6 +27,14 @@ from app.core.exceptions import ConflictError, NotFoundError
 from app.shared.domain.errors import ConcurrencyConflict, ValueValidationError
 from app.shared.pagination import Page, PageRequest
 from app.shared.value_objects.polygon import GeoPolygon
+
+
+def _required[T](row: T | None) -> T:
+    """Return a row that SQL guarantees exists (INSERT ... RETURNING, aggregate); never ``None``."""
+    if row is None:
+        raise RuntimeError("the database returned no row for a statement that must return one")
+    return row
+
 
 # A neighbour overlap below this is boundary noise (shared edges), not a topology problem.
 OVERLAP_THRESHOLD_SQ_M = 0.5
@@ -106,12 +116,12 @@ class ComplianceStore:
             polygon.to_multipolygon_geojson() if multi else polygon.to_polygon_geojson()
         )
         row = await self._one(
-            f"SELECT ST_IsValid(g.geom) AS valid, ST_IsValidReason(g.geom) AS reason,"
+            f"SELECT ST_IsValid(g.geom) AS valid, ST_IsValidReason(g.geom) AS reason,"  # nosec B608
             f" ST_Area(CAST(g.geom AS geography)) AS area"
             f" FROM (SELECT {_GEOM} AS geom) g",
             g=geojson,
         )
-        assert row is not None
+        row = _required(row)
         if not row["valid"]:
             raise ValueValidationError(
                 f"the geometry is not topologically valid: {row['reason']}", field="geometry"
@@ -193,7 +203,7 @@ class ComplianceStore:
         reason: str | None,
     ) -> None:
         overlaps = await self._all(
-            f"SELECT p.code, ST_Area(CAST(ST_Intersection(v.geometry, g.geom) AS geography))"
+            f"SELECT p.code, ST_Area(CAST(ST_Intersection(v.geometry, g.geom) AS geography))"  # nosec B608
             f" AS overlap_sq_m FROM (SELECT ST_Multi({_GEOM}) AS geom) g, parcel p"
             f" JOIN parcel_geometry_version v"
             f" ON v.parcel_id = p.id AND v.version = p.current_version"
@@ -212,7 +222,7 @@ class ComplianceStore:
         }
         await self._s.execute(
             text(
-                f"INSERT INTO parcel_geometry_version (parcel_id, jurisdiction_id, version,"
+                f"INSERT INTO parcel_geometry_version (parcel_id, jurisdiction_id, version,"  # nosec B608
                 f" geometry, area_sq_m, topology_status, topology_detail, reason, recorded_by)"
                 f" VALUES (:p, :j, :v, ST_Multi({_GEOM}), :area, :status,"
                 f" CAST(:detail AS jsonb), :reason, :u)"
@@ -298,7 +308,7 @@ class ComplianceStore:
                 "The parcel already has a property record, or the reference is taken.",
                 code="property_conflict",
             ) from exc
-        assert row is not None
+        row = _required(row)
         return row
 
     async def get_property(self, property_id: uuid.UUID) -> dict[str, Any]:
@@ -418,7 +428,7 @@ class ComplianceStore:
 
     async def get_permit(self, permit_id: uuid.UUID, *, lock: bool = False) -> dict[str, Any]:
         row = await self._one(
-            f"SELECT {_PERMIT_COLUMNS} FROM building_permit WHERE id = :i"
+            f"SELECT {_PERMIT_COLUMNS} FROM building_permit WHERE id = :i"  # nosec B608
             + (" FOR UPDATE" if lock else ""),
             i=permit_id,
         )
@@ -434,8 +444,8 @@ class ComplianceStore:
             " AND (CAST(:s AS text) IS NULL OR status = :s)"
         )
         return await self._page(
-            f"SELECT {_PERMIT_COLUMNS} FROM building_permit {where} ORDER BY permit_number, id",
-            f"SELECT count(*) FROM building_permit {where}",
+            f"SELECT {_PERMIT_COLUMNS} FROM building_permit {where} ORDER BY permit_number, id",  # nosec B608
+            f"SELECT count(*) FROM building_permit {where}",  # nosec B608
             request,
             m=match_status,
             s=status,
@@ -537,7 +547,7 @@ class ComplianceStore:
         try:
             async with self._s.begin_nested():
                 candidate_id = await self._scalar(
-                    f"INSERT INTO construction_change_candidate (jurisdiction_id, source_type,"
+                    f"INSERT INTO construction_change_candidate (jurisdiction_id, source_type,"  # nosec B608
                     f" is_simulated, observed_on, change_type, footprint, footprint_area_sq_m,"
                     f" estimated_floors, confidence, model_name, model_version, imagery_refs,"
                     f" provenance_note, created_by, updated_by)"
@@ -567,7 +577,7 @@ class ComplianceStore:
 
     async def get_candidate(self, candidate_id: uuid.UUID, *, lock: bool = False) -> dict[str, Any]:
         row = await self._one(
-            f"SELECT {_CANDIDATE_COLUMNS} FROM construction_change_candidate WHERE id = :i"
+            f"SELECT {_CANDIDATE_COLUMNS} FROM construction_change_candidate WHERE id = :i"  # nosec B608
             + (" FOR UPDATE" if lock else ""),
             i=candidate_id,
         )
@@ -583,9 +593,9 @@ class ComplianceStore:
             " AND (CAST(:t AS text) IS NULL OR source_type = :t)"
         )
         return await self._page(
-            f"SELECT {_CANDIDATE_COLUMNS} FROM construction_change_candidate {where}"
+            f"SELECT {_CANDIDATE_COLUMNS} FROM construction_change_candidate {where}"  # nosec B608
             f" ORDER BY created_at DESC, id",
-            f"SELECT count(*) FROM construction_change_candidate {where}",
+            f"SELECT count(*) FROM construction_change_candidate {where}",  # nosec B608
             request,
             s=status,
             t=source_type,
@@ -675,7 +685,7 @@ class ComplianceStore:
             f=_json(failed_rules),
             r=_json(result),
         )
-        assert row is not None
+        row = _required(row)
         await self._s.execute(
             text(
                 "UPDATE construction_change_candidate SET parcel_id = :p, updated_by = :u,"
@@ -729,7 +739,7 @@ class ComplianceStore:
             e=_json(evidence_refs),
             r=is_reversal,
         )
-        assert review is not None
+        review = _required(review)
         await self._s.execute(
             text(
                 "UPDATE construction_change_candidate SET status = :s, updated_by = :u,"
@@ -790,7 +800,7 @@ class ComplianceStore:
 
     async def get_case(self, case_id: uuid.UUID, *, lock: bool = False) -> dict[str, Any]:
         row = await self._one(
-            f"SELECT {_CASE_COLUMNS} FROM inspection_case WHERE id = :i"
+            f"SELECT {_CASE_COLUMNS} FROM inspection_case WHERE id = :i"  # nosec B608
             + (" FOR UPDATE" if lock else ""),
             i=case_id,
         )
@@ -806,9 +816,9 @@ class ComplianceStore:
             " AND (CAST(:a AS uuid) IS NULL OR assigned_to = :a)"
         )
         return await self._page(
-            f"SELECT {_CASE_COLUMNS} FROM inspection_case {where}"
+            f"SELECT {_CASE_COLUMNS} FROM inspection_case {where}"  # nosec B608
             f" ORDER BY priority_score DESC, created_at, id",
-            f"SELECT count(*) FROM inspection_case {where}",
+            f"SELECT count(*) FROM inspection_case {where}",  # nosec B608
             request,
             s=status,
             a=assigned_to,
@@ -919,7 +929,7 @@ class ComplianceStore:
             m=_json(measurements),
             e=_json(evidence),
         )
-        assert row is not None
+        row = _required(row)
         return row
 
     async def case_history(self, case_id: uuid.UUID) -> dict[str, list[dict[str, Any]]]:

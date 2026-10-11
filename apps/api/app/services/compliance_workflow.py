@@ -116,7 +116,7 @@ class Actor:
 
 class ComplianceService:
     def __init__(
-        self, sessions: Sessions, audit: SecurityAuditLog | None, access: AccessStore | None
+        self, sessions: Sessions | None, audit: SecurityAuditLog | None, access: AccessStore | None
     ) -> None:
         self._sessions = sessions
         self._audit = audit
@@ -124,6 +124,10 @@ class ComplianceService:
 
     # --------------------------------------------------------------- plumbing
     def _scope(self, ctx: AccessContext, actor: Actor) -> Any:
+        if self._sessions is None:  # fail closed, after authentication and authorisation
+            raise ServiceUnavailableError(
+                "The database is not available.", code="database_unavailable"
+            )
         return tenant_session(
             self._sessions, user_id=actor.user_id, jurisdiction_ids=ctx.jurisdictions
         )

@@ -41,7 +41,7 @@ class RuleCode(StrEnum):
 
 
 class RuleOutcome(StrEnum):
-    PASS = "pass"
+    PASS = "pass"  # nosec B105
     FAIL = "fail"
     NOT_APPLICABLE = "not_applicable"
     INDETERMINATE = "indeterminate"

@@ -29,6 +29,7 @@ ADRs rather than by editing their history.
 | [ADR-0012](adr/0012-canonical-geospatial-storage-and-crs-roles.md)             | Canonical geospatial storage and CRS roles                                 |
 | [ADR-0013](adr/0013-authentication-token-validation-and-revocation.md)         | Authentication: OIDC validation and revocation (proposed)                  |
 | [ADR-0014](adr/0014-officer-verification-gate-for-ai-findings.md)              | Officer verification gate for AI findings                                  |
+| [ADR-0015](adr/0015-construction-compliance-workflow.md)                       | Construction-compliance workflow: parcel → permit → candidate → case       |
 
 Contributor and release process docs live in
 [CONTRIBUTING.md](../CONTRIBUTING.md), [onboarding/](onboarding/), and

@@ -65,23 +65,34 @@ CodeQL. What those jobs do and do not prove:
   `git diff --exit-code`. It checks the committed locks on Linux x86_64 only.
 - **Docker:** the job builds two images without pushing: `apps/api/Dockerfile` (tag `satrak-api:ci`) and
   `apps/web/Dockerfile` (`satrak-web:ci`). It never starts a container, so the `HEALTHCHECK`, the non-root
-  user, start-up under production settings and an image vulnerability scan are not exercised. No image
-  exists for a job worker. `infra/docker-compose` also pulls `postgis/postgis:16-3.4`, `redis:7-alpine` and
+  user, start-up under production settings and an image vulnerability scan are not exercised by that job
+  (the separate `container-smoke` job, below, starts the images; an image vulnerability scan is not part of
+  this change). No image exists for a job worker. `infra/docker-compose` also pulls `postgis/postgis:16-3.4`, `redis:7-alpine` and
   `node:20-slim` for local development; those are not built or scanned by CI. Base images are pinned by tag,
   not digest.
 
+### Container smoke job (`container-smoke`)
+
+At `e34c3b7` every step of the job passed in GitHub Actions: the API image migrates and starts under production
+settings with synthetic config (live and ready 200, issuer unreachable), runs as the non-root `satrak` user
+with a healthy `HEALTHCHECK`, and exits non-zero for a schema-owner database role and for a missing database;
+the Web image serves `/` with 200 as the non-root `nextjs` user. Details and limits: `docs/DOCKER_VALIDATION.md`.
+This is CI evidence for R10 only in part (see the table); it is not staging evidence.
+
 ## 5. Evidence record (fill in during staging; leave blank until demonstrated)
 
-| #   | Requirement                            | Pass criterion                                                                    | Result | Date / run / log link |
-| --- | -------------------------------------- | --------------------------------------------------------------------------------- | ------ | --------------------- |
-| R1  | IdP emits `sid` or `jti`               | Present in a captured access token (claims only)                                  |        |                       |
-| R2  | IdP access-token lifetime              | Documented value, and `exp - iat` in a captured token, at most 900 s              |        |                       |
-| R3  | SATRAK-side revocation                 | 401 on every API instance within 60 s of the revoke call (expected: next request) |        |                       |
-| R4  | IdP-side disable                       | Old token rejected within 60 s, via an integrated IdP signal                      |        |                       |
-| R5  | API port reachable only from the proxy | Connection from outside the allowed range is refused or times out                 |        |                       |
-| R6  | Forged `X-Forwarded-For`               | Limited under the proxy-observed address                                          |        |                       |
-| R7  | `rate_limit_no_trusted_proxy`          | Absent from production start-up logs                                              |        |                       |
-| R8  | Session retention                      | Written approval of a retention period (30 days is unapproved)                    |        |                       |
+| #   | Requirement                            | Pass criterion                                                                    | Result           | Date / run / log link                                                                                                                                     |
+| --- | -------------------------------------- | --------------------------------------------------------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1  | IdP emits `sid` or `jti`               | Present in a captured access token (claims only)                                  |                  |                                                                                                                                                           |
+| R2  | IdP access-token lifetime              | Documented value, and `exp - iat` in a captured token, at most 900 s              |                  |                                                                                                                                                           |
+| R3  | SATRAK-side revocation                 | 401 on every API instance within 60 s of the revoke call (expected: next request) |                  |                                                                                                                                                           |
+| R4  | IdP-side disable                       | Old token rejected within 60 s, via an integrated IdP signal                      |                  |                                                                                                                                                           |
+| R5  | API port reachable only from the proxy | Connection from outside the allowed range is refused or times out                 |                  |                                                                                                                                                           |
+| R6  | Forged `X-Forwarded-For`               | Limited under the proxy-observed address                                          |                  |                                                                                                                                                           |
+| R7  | `rate_limit_no_trusted_proxy`          | Absent from production start-up logs                                              |                  |                                                                                                                                                           |
+| R8  | Session retention                      | Written approval of a retention period (30 days is unapproved)                    |                  |                                                                                                                                                           |
+| R9  | AI finding publication gate            | `finding:verify` enforced by an implemented finding/case flow, with tests         | NOT IMPLEMENTED  | Only `authorize_verification` exists (ADR-0014); no finding or case aggregate. Its own approved phase. Not passed.                                        |
+| R10 | Container runtime                      | Images start under production settings, non-root, healthy, refuse unsafe config   | PARTIAL: CI only | `container-smoke` green at `e34c3b7`. Still open: run in the real runtime (staging), compose stack, image scan (separate PR), worker image (none exists). |
 
 R4 passes only with evidence of an IdP signal that SATRAK consumes. If the IdP offers none, the one-minute
 requirement stays unmet unless the owner restates it.

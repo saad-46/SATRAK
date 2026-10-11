@@ -74,7 +74,7 @@ a closed case is immutable; the application role holds no DELETE/TRUNCATE anywhe
 ## Requirement-to-evidence record
 
 Status key: **VL** verified locally (command output reviewed in the build session), **IP** implemented
-in part (limits stated). Nothing is verified in CI yet: the branch has not been pushed. All database
+in part (limits stated). Nothing is verified in CI yet: the branch is pushed but CI runs only for pull requests to `main`. All database
 tests ran against local PostgreSQL 16 / PostGIS with Redis; no mocks stand in for the database.
 
 | Feature                                             | PRD                                | TDD / ADR     | Code                                                                          | Migration | Routes                                    | Tests                                                                                                 | Status  | Limits                                                                                                |
@@ -91,3 +91,18 @@ tests ran against local PostgreSQL 16 / PostGIS with Redis; no mocks stand in fo
 | F10 Jurisdiction isolation (RLS)                    | NFR security                       | ADR-0011      | `tenancy.py`, policies                                                        | 0005      | all                                       | `test_compliance_schema`, `test_compliance_api::test_other_jurisdictions…`, `test_row_level_security` | VL      | Network isolation and IdP revocation timing remain unevidenced (R1–R8 open)                           |
 
 An officer-facing web interface was **not** built in this phase; the API is the contract for it.
+
+## Terminology and requirement-to-test traceability (ADR-0014 Amendment 1)
+
+Candidate = unverified AI output; verified candidate = `confirmed` after an authorized review; inspection case = opened only from a verified candidate; case finding = inspector's site-visit record.
+
+| Requirement (D1)                                              | Enforced in                              | Tests                                                                                                                                                                                                    |
+| ------------------------------------------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Candidates start `unverified`                                 | domain, `candidate_guard`                | `test_a_candidate_cannot_start_in_any_state_but_unverified`                                                                                                                                              |
+| Status changes only via a recorded review                     | `candidate_guard`, review append-only    | `test_candidate_status_changes_only_through_a_matching_recorded_review`                                                                                                                                  |
+| Candidate evidence is immutable                               | trigger                                  | `test_candidate_evidence_is_immutable`                                                                                                                                                                   |
+| Only a confirmed candidate may create a case                  | service, domain, `inspection_case_guard` | `test_release_gate_rejects_a_case_for_a_candidate_not_confirmed`, `test_a_case_cannot_be_opened_from_an_unconfirmed_candidate`, `test_release_gate_accepts_a_confirmed_evaluated_candidate_exactly_once` |
+| Verification needs permission in the candidate's jurisdiction | `authorize_verification`                 | `test_verification_requires_the_verify_permission_in_the_jurisdiction`                                                                                                                                   |
+| Confirmation needs evaluation, provenance, justification      | domain, service                          | `test_confirmation_needs_an_evaluation_provenance_and_a_justification`                                                                                                                                   |
+| No reversal while a case is open; one case per candidate      | trigger, service                         | `test_a_confirmed_candidate_with_an_open_case_cannot_be_un_confirmed`, `test_a_confirmation_cannot_be_reversed_while_its_case_is_open`, `test_only_one_case_per_candidate`                               |
+| Concurrency, isolation, audit                                 | `expected_version`, RLS, audit           | `test_stale_case_versions_are_rejected`, RLS tests in `test_compliance_schema.py`, `test_full_workflow_from_parcel_to_closed_case`                                                                       |

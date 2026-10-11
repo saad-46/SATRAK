@@ -4,6 +4,8 @@ Last verified: 2026-10-10. GitHub `main` = `ce93ee6` (v0.1.0 foundation; docs me
 
 ## Compliance workflow slice (2026-10-11, branch `claude/satrak-compliance-workflow`, pushed 2026-10-11 05:2x UTC, no PR)
 
+**Decision D1 (2026-10-11):** Option A approved (candidate/case separation); see ADR-0014 Amendment 1. Schema already implements it; no migration. Event publication (`candidate.created`, `candidate.verified`) is a contract only: no event bus exists. Open policy decisions: four-eyes, reversal rules, per-decision justification, FR-6.1/6.5 thresholds.
+
 **CI status:** none. `ci.yml` and `codeql.yml` trigger only on `pull_request` to `main` and `push` to `main`, so pushing this branch started no workflow (0 runs found for the branch). CI results require a PR, which has not been authorised. Local results are in the table below and are not CI evidence.
 
 First product vertical on the access-control foundation: parcels with versioned geometry, properties, permits with parcel matching, construction-change candidates, deterministic permit evaluation, officer verification (ADR-0014 release gate, enforced in service and database), and cases with assignment, lifecycle and findings. Design: ADR-0015; API and requirement-to-evidence record: `docs/COMPLIANCE_WORKFLOW.md`. Verified locally against PostgreSQL 16/PostGIS and Redis; **not yet verified in CI**. Modules 4, 5, 6 and 10 move from N to P below (partial; limits are listed per feature). No officer-facing UI, no live permit/imagery/model integration, rule thresholds unapproved. Blockers R1–R8 are unchanged: this is not production readiness.

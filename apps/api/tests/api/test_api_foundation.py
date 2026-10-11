@@ -17,13 +17,9 @@ class TestSystemEndpoints:
         assert body["name"] == "SATRAK API"
         assert "feature_flags" in body
 
-    async def test_metrics_counts_requests(self, client: AsyncClient) -> None:
-        await client.get("/api/v1/health/live")
+    async def test_metrics_are_not_available_to_ordinary_users(self, client: AsyncClient) -> None:
         response = await client.get("/api/v1/system/metrics")
-        assert response.status_code == 200
-        body = response.json()
-        assert body["uptime_seconds"] >= 0
-        assert any(c["name"] == "http_requests_total" for c in body["counters"])
+        assert response.status_code == 403  # operators only; see test_rate_limit_api
 
 
 class TestPageParams:

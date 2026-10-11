@@ -1,0 +1,16 @@
+[project]
+name = "satrak-py-raster"
+version = "0.0.0"
+description = "SATRAK shared raster-processing engine (GDAL/rasterio) — scaffold, no implementation yet."
+requires-python = ">=3.12"
+readme = "README.md"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/py_raster"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]

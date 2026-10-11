@@ -35,6 +35,7 @@ export default {
         "sdk",
         "shared",
         "config",
+        "earth-observation",
         "satellite",
         "gis",
         "drone",

@@ -57,10 +57,12 @@ services:
         "0.0.0.0",
         "--port",
         "8000",
+        "--no-proxy-headers",
         "--reload",
       ]
     environment:
       SATRAK_API_ENVIRONMENT: development
+      SATRAK_API_NETWORK_TOPOLOGY: direct
       SATRAK_API_LOG_FORMAT: console
       SATRAK_API_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-satrak}:${POSTGRES_PASSWORD:-satrak_dev_password}@postgis:5432/${POSTGRES_DB:-satrak}
       SATRAK_API_REDIS_URL: redis://redis:6379/0

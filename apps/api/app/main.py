@@ -8,6 +8,7 @@ app instance rather than importing a module-level singleton with side effects).
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -25,6 +26,7 @@ from app.core.exception_handlers import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import RequestContextMiddleware
 from app.core.openapi import build_custom_openapi
+from app.core.proxy_trust import verify_forwarded_allow_ips
 from app.core.ratelimit import InMemoryRateLimiter, RateLimiter, RedisRateLimiter
 from app.core.security_audit import SecurityAuditLog
 from app.core.security_middleware import BodySizeLimitMiddleware, SecurityHeadersMiddleware
@@ -42,11 +44,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if not app.state.settings.auth.enabled:
         logger.warning("authentication_disabled", environment=str(app.state.settings.environment))
     try:
+        settings = app.state.settings
+        production_like = settings.environment in (Environment.STAGING, Environment.PRODUCTION)
+        verify_forwarded_allow_ips(os.environ, enforce=production_like)
         await _verify_database_role(app, logger)
-        rate = app.state.settings.rate_limit
-        if rate.enabled and rate.trusted_proxy_hops == 0 and app.state.settings.is_production:
-            # Behind a load balancer every client would share the balancer's address.
-            logger.warning("rate_limit_no_trusted_proxy", hint="set trusted_proxy_hops and cidrs")
+        if settings.network_topology == "direct" and production_like:
+            # An exception to the intended topology, allowed only with a recorded reference.
+            logger.warning(
+                "direct_exposure_acknowledged",
+                reference=settings.direct_exposure_acknowledgement,
+                hint="client addresses are TCP peers; X-Forwarded-For is never believed",
+            )
         yield
     finally:  # also runs when startup validation refuses to serve
         if app.state.auth is not None:

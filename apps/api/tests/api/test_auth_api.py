@@ -194,6 +194,8 @@ async def test_disabled_authentication_is_only_possible_by_explicit_dev_setting(
 async def test_docs_are_not_exposed_in_production() -> None:
     prod = Settings(
         environment=Environment.PRODUCTION,
+        network_topology="direct",
+        direct_exposure_acknowledgement="TEST-APPROVAL-1",
         log_format="console",
         auth=auth_settings(),
         redis_url="redis://localhost:6379/0",  # required in production (rate limiting)

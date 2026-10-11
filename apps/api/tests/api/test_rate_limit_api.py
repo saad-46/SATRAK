@@ -376,6 +376,8 @@ def test_production_cannot_disable_limits_or_run_without_redis() -> None:
         "environment": Environment.PRODUCTION,
         "auth": auth_settings(),
         "log_format": "console",
+        "network_topology": "direct",
+        "direct_exposure_acknowledgement": "TEST-APPROVAL-1",
         "database_url": "postgresql+asyncpg://u:p@db:5432/satrak",
     }
     with pytest.raises(ValueError, match="rate limiting cannot be disabled"):

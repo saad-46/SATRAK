@@ -55,4 +55,6 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -fsS http://localhost:8000/api/v1/health/live || exit 1
 
-CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+# --no-proxy-headers: uvicorn must not rewrite client addresses from X-Forwarded-For; the
+# application resolves them (rate_limit.trusted_proxy_*) so there is exactly one trust path.
+CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]

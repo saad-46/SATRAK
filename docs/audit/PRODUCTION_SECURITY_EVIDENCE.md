@@ -36,7 +36,9 @@ are empty):
    Kubernetes `NetworkPolicy` that admits the proxy's address range only. The same range goes into
    `SATRAK_API_RATE_LIMIT_TRUSTED_PROXY_CIDRS`; `..._TRUSTED_PROXY_HOPS` equals the number of proxies that
    append to the header.
-2. If uvicorn is started with `--proxy-headers`, `--forwarded-allow-ips` must be the same range, never `*`.
+2. uvicorn runs with `--no-proxy-headers` (set in `apps/api/Dockerfile`); if a deployment overrides the
+   command and enables proxy headers, `--forwarded-allow-ips` must be the same range, never `*` (startup
+   refuses `*` and `0.0.0.0/0`). Production declares `SATRAK_API_NETWORK_TOPOLOGY=behind_proxy`.
 3. The proxy overwrites or appends `X-Forwarded-For` and strips client-supplied `X-Forwarded-*` otherwise.
 4. TLS terminates at the proxy; the API port is not published publicly (compose publishes it for local
    development only).
@@ -44,7 +46,8 @@ are empty):
 Evidence: (a) a connection attempt to the API port from a host outside the range is refused or times out;
 (b) through the proxy, a request carrying a forged `X-Forwarded-For` is limited under the proxy-observed
 address (inspect the `rate_limited` log key or exhaust `api_ip` from the forged value and from the real one);
-(c) `rate_limit_no_trusted_proxy` is absent from production start-up logs.
+(c) `direct_exposure_acknowledged` is absent from production start-up logs (it appears only when the
+`direct` exception is used).
 
 ## 3. Limits and policy values awaiting confirmation
 
@@ -80,7 +83,7 @@ CodeQL. What those jobs do and do not prove:
 | R4  | IdP-side disable                       | Old token rejected within 60 s, via an integrated IdP signal                      |        |                       |
 | R5  | API port reachable only from the proxy | Connection from outside the allowed range is refused or times out                 |        |                       |
 | R6  | Forged `X-Forwarded-For`               | Limited under the proxy-observed address                                          |        |                       |
-| R7  | `rate_limit_no_trusted_proxy`          | Absent from production start-up logs                                              |        |                       |
+| R7  | `direct_exposure_acknowledged`         | Absent from production start-up logs                                              |        |                       |
 | R8  | Session retention                      | Written approval of a retention period (30 days is unapproved)                    |        |                       |
 
 R4 passes only with evidence of an IdP signal that SATRAK consumes. If the IdP offers none, the one-minute

@@ -17,8 +17,11 @@ DEPLOYED = (Environment.STAGING, Environment.PRODUCTION)
 def _deployed(environment: Environment, **overrides: Any) -> Settings:
     base: dict[str, Any] = {
         "environment": environment,
+        "network_topology": "behind_proxy",
         "auth": auth_settings(),
-        "rate_limit": RateLimitSettings(enabled=True),
+        "rate_limit": RateLimitSettings(
+            enabled=True, trusted_proxy_hops=1, trusted_proxy_cidrs=["10.0.0.0/8"]
+        ),
         "redis_url": "redis://r:6379/0",
         "database_url": "postgresql+asyncpg://u:p@db:5432/satrak",
     }

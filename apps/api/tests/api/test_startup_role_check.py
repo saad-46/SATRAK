@@ -81,6 +81,8 @@ def test_warn_mode_is_rejected_in_staging_and_production() -> None:
         with pytest.raises(ValueError, match="database_role_check"):
             Settings(
                 environment=env,
+                network_topology="direct",
+                direct_exposure_acknowledgement="TEST-APPROVAL-1",
                 database_role_check="warn",
                 redis_url="redis://x:6379/0",
                 auth=auth_settings(),

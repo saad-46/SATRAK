@@ -142,8 +142,12 @@ refresh tokens are held by the SPA/BFF; MFA enforcement location; service-accoun
   that trusts every address is rejected). A request whose TCP peer is outside the range, or any request when
   hops is 0, is keyed by its peer address; spoofed headers are ignored. This protects rate-limit keys only:
   the network (security group, NetworkPolicy, private subnet) must still stop anything but the proxy from
-  reaching the API port, and uvicorn `--proxy-headers`/`--forwarded-allow-ips` must not be enabled with a
-  wider list than the CIDRs above. No such network control exists in this repository (`infra/k8s` and
+  reaching the API port. Phase 1 update: the API image runs uvicorn with `--no-proxy-headers`, so the
+  application is the only place that interprets `X-Forwarded-For`; startup also refuses a wildcard or
+  all-address `FORWARDED_ALLOW_IPS` in staging and production, for deployments that override the command.
+  `SATRAK_API_NETWORK_TOPOLOGY` (`behind_proxy` or `direct`, no default in staging/production) must match the
+  proxy settings; `direct` in staging/production is an exception that needs
+  `SATRAK_API_DIRECT_EXPOSURE_ACKNOWLEDGEMENT` and is logged as `direct_exposure_acknowledged`. No such network control exists in this repository (`infra/k8s` and
   `infra/terraform` are empty) and remains a deployment task.
 - **Metric cardinality.** HTTP methods outside the standard set share the label `OTHER`, and any metric stops
   at 200 label sets (the rest go to an `overflow` bucket).

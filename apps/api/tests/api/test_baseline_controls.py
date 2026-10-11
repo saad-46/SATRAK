@@ -95,6 +95,8 @@ async def test_security_headers_on_api_and_error_responses(idp: TestIdp) -> None
 async def test_hsts_is_sent_in_production(idp: TestIdp) -> None:
     prod = Settings(
         environment=Environment.PRODUCTION,
+        network_topology="direct",
+        direct_exposure_acknowledgement="TEST-APPROVAL-1",
         log_format="console",
         auth=auth_settings(),
         redis_url="redis://localhost:6379/0",

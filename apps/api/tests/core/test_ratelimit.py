@@ -218,6 +218,7 @@ def test_trusted_proxy_cidrs_are_validated_and_required_in_production() -> None:
     with pytest.raises(ValueError, match="trusted_proxy_cidrs"):
         Settings(
             environment=Environment.PRODUCTION,
+            network_topology="behind_proxy",
             redis_url="redis://x:6379/0",
             auth=auth_settings(),
             rate_limit=RateLimitSettings(trusted_proxy_hops=1),

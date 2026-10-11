@@ -253,6 +253,18 @@ class Settings(BaseSettings):
     debug: bool = False
     version: str = "0.1.0"
 
+    # --- Network topology (ADR-0013) -----------------------------------------
+    # How the API is reached. No default: staging and production refuse to start without an
+    # explicit value. ``behind_proxy`` = traffic arrives only through trusted reverse proxies /
+    # load balancers listed in ``rate_limit.trusted_proxy_cidrs``. ``direct`` = callers connect to
+    # the API themselves, so ``X-Forwarded-For`` is never believed. A declaration is a claim
+    # about the network, not proof of it: the infrastructure evidence (R5) is still required.
+    network_topology: Literal["behind_proxy", "direct"] | None = None
+    # Only for ``direct`` in staging/production, which is an exception to the intended topology.
+    # A non-empty reference (e.g. an approval or ticket id) that is logged at every start. It
+    # changes nothing else: authentication, row-level security and rate limits are unaffected.
+    direct_exposure_acknowledgement: str | None = Field(default=None, max_length=200)
+
     # --- HTTP / API ----------------------------------------------------------
     api_v1_prefix: str = "/api/v1"
     # Binding to all interfaces is required for the containerized deployment to be
@@ -305,6 +317,42 @@ class Settings(BaseSettings):
             Environment.PRODUCTION,
         ):
             raise ValueError("authentication cannot be disabled in staging or production")
+        return self
+
+    @model_validator(mode="after")
+    def _topology_matches_proxy_trust(self) -> Settings:
+        deployed = self.environment in (Environment.STAGING, Environment.PRODUCTION)
+        rate = self.rate_limit
+        ack = (self.direct_exposure_acknowledgement or "").strip()
+        topology = self.network_topology
+        if topology is None:
+            if deployed:
+                raise ValueError(
+                    "network_topology is required in staging or production "
+                    "('behind_proxy' or 'direct')"
+                )
+            if ack:
+                raise ValueError("direct_exposure_acknowledgement needs network_topology=direct")
+            return self
+        if topology == "behind_proxy":
+            if rate.trusted_proxy_hops < 1 or not rate.trusted_proxy_cidrs:
+                raise ValueError(
+                    "network_topology=behind_proxy needs rate_limit.trusted_proxy_hops >= 1 and "
+                    "rate_limit.trusted_proxy_cidrs"
+                )
+            if ack:
+                raise ValueError("direct_exposure_acknowledgement applies only to direct")
+            return self
+        if rate.trusted_proxy_hops != 0 or rate.trusted_proxy_cidrs:
+            raise ValueError(
+                "network_topology=direct cannot trust proxies: set rate_limit.trusted_proxy_hops=0 "
+                "and no trusted_proxy_cidrs"
+            )
+        if deployed and len(ack) < 8:
+            raise ValueError(
+                "network_topology=direct in staging or production needs "
+                "direct_exposure_acknowledgement (an approval reference of at least 8 characters)"
+            )
         return self
 
     @model_validator(mode="after")

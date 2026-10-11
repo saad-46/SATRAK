@@ -19,11 +19,9 @@ choices where the source documents were silent or disagreed.
    rules, authorization and audit; routes (`app/api/v1/endpoints/compliance.py`) only translate HTTP.
    Import-linter contracts forbid contexts from importing `app.services` and services from importing
    the web layer or the all-tenants scope.
-2. **The finding model (ADR-0014 vs Blueprint) is not reopened.** The unverified output of AI, a field
+2. **The finding model is decided (ADR-0014 Amendment 1, Option A).** The unverified output of AI, a field
    report or an import is a **construction-change candidate**. A **case** is a different aggregate that
-   can only exist for a candidate an officer has confirmed. We did not introduce a separate "finding"
-   aggregate; the open question of whether the Blueprint's finding should be that candidate or a
-   case-level record is listed under _Unresolved_ below.
+   can only exist for a candidate an officer has confirmed. "Case finding" means only the inspector's site-visit record.
 3. **The release gate is enforced three times.** (a) the service refuses with `verification_required`
    (409) and records `release.denied`; (b) the review and case rules live in the domain; (c) database
    triggers reject a case for a candidate that is not `confirmed` and evaluated, reject a candidate
@@ -68,7 +66,7 @@ choices where the source documents were silent or disagreed.
 
 ## Unresolved (need a decision; nothing was assumed)
 
-- Whether ADR-0014's "finding" and the Blueprint's finding are the candidate or a later record.
+- (Resolved 2026-10-11: see ADR-0014 Amendment 1.) Open policy: four-eyes verification, reversal rules, per-decision justification rules, FR-6.1/6.5 thresholds.
 - Permit-to-parcel matching tolerance, boundary tolerance and severity mapping (FR-6.1).
 - Whether supervisors may assign without the assignee consenting, SLA clocks (FR-10.4), automatic
   assignment (FR-10.3), and priority from the risk score (FR-10.2, module 14 does not exist).

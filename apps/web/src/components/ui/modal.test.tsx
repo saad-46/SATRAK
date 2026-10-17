@@ -49,3 +49,43 @@ describe("Modal", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 });
+
+describe("Modal isolation", () => {
+  it("renders in a body-level portal and makes the rest of the page inert while open", async () => {
+    const { container } = render(<Harness />);
+    const trigger = screen.getByRole("button", { name: "open" });
+    expect(container).not.toHaveAttribute("inert");
+    await userEvent.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: "Title" });
+    expect(container.contains(dialog)).toBe(false);
+    expect(container).toHaveAttribute("inert");
+    expect(container).toHaveAttribute("aria-hidden", "true");
+    // The portal itself must not be inert, or the dialog would be unreachable.
+    expect(dialog.closest("[inert]")).toBeNull();
+    expect(screen.queryByRole("button", { name: "open" })).not.toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    expect(container).not.toHaveAttribute("inert");
+    expect(container).not.toHaveAttribute("aria-hidden");
+    expect(document.body.querySelectorAll("[role=dialog]")).toHaveLength(0);
+  });
+
+  it("still closes on Escape and keeps Tab inside when focus has fallen to <body>", async () => {
+    render(<Harness />);
+    await userEvent.click(screen.getByRole("button", { name: "open" }));
+    (document.activeElement as HTMLElement).blur();
+    expect(document.body).toHaveFocus();
+    await userEvent.tab();
+    expect(screen.getByRole("dialog")).toContainElement(document.activeElement as HTMLElement);
+    (document.activeElement as HTMLElement).blur();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("restores a pre-existing aria-hidden value instead of clearing it", async () => {
+    const { container } = render(<Harness />);
+    container.setAttribute("aria-hidden", "false");
+    await userEvent.click(screen.getByRole("button", { name: "open", hidden: true }));
+    await userEvent.keyboard("{Escape}");
+    expect(container).toHaveAttribute("aria-hidden", "false");
+  });
+});

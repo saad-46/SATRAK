@@ -28,11 +28,14 @@ class AppError(Exception):
         code: str | None = None,
         status_code: int | None = None,
         details: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         self.message = message or self.message
         self.code = code or self.code
         self.status_code = status_code or self.status_code
         self.details = details or {}
+        # Extra response headers (e.g. ``WWW-Authenticate`` on 401, ``Retry-After`` on 429).
+        self.headers = headers or {}
         super().__init__(self.message)
 
 
@@ -66,6 +69,16 @@ class ForbiddenError(AppError):
     status_code = 403
 
 
+class TooManyRequestsError(AppError):
+    code = "rate_limited"
+    message = "Too many requests. Retry after the indicated delay."
+    status_code = 429
+
+    def __init__(self, retry_after: int, message: str | None = None) -> None:
+        super().__init__(message, headers={"Retry-After": str(max(1, int(retry_after)))})
+        self.retry_after = max(1, int(retry_after))
+
+
 class ServiceUnavailableError(AppError):
     code = "service_unavailable"
     message = "A required dependency is currently unavailable."
@@ -88,5 +101,7 @@ DOMAIN_ERROR_STATUS: dict[str, int] = {
     "value_validation_error": 422,
     "business_rule_violation": 422,
     "concurrency_conflict": 409,
+    "invalid_state_transition": 409,
+    "verification_required": 409,
     "domain_error": 422,
 }

@@ -20,6 +20,9 @@ from app.core.metrics import metrics
 
 logger = structlog.get_logger("api.access")
 
+# Client-supplied methods outside this set share one "OTHER" label (bounded metric cardinality).
+_KNOWN_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"})
+
 REQUEST_ID_HEADER = "X-Request-ID"
 CORRELATION_ID_HEADER = "X-Correlation-ID"
 
@@ -56,7 +59,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         response.headers[CORRELATION_ID_HEADER] = correlation_id
         metrics.increment(
             "http_requests_total",
-            method=request.method,
+            method=request.method if request.method in _KNOWN_METHODS else "OTHER",
             status=str(response.status_code),
         )
         logger.info(

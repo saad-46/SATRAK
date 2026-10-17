@@ -47,3 +47,10 @@ pnpm --filter @satrak/web test       # vitest (unit/component)
 pnpm --filter @satrak/web test:e2e   # playwright
 pnpm --filter @satrak/web build
 ```
+
+## Officer console
+
+Routes, API matrix, authentication limits and open items: [`docs/OFFICER_CONSOLE.md`](../../docs/OFFICER_CONSOLE.md).
+
+- Sign-in is a **development-only** pasted bearer token (kept in `sessionStorage`; **off unless `NEXT_PUBLIC_ENABLE_DEV_TOKEN=true` at build time**, refused when `NEXT_PUBLIC_APP_ENV=production`, and the image build aborts if the flag is set); there is no IdP client in the repository yet.
+- `pnpm test:e2e` needs a build made with `NEXT_PUBLIC_ENABLE_DEV_TOKEN=true` and runs the stubbed-API journeys and the real-browser accessibility checks (CI job `e2e`). `e2e/fullstack.spec.ts` runs against the real API only when `E2E_STACK_FILE` points at the file written by `python -m tests.e2e_stack.serve` (apps/api). If the bundled Chromium revision is not installed, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to an installed Chromium.

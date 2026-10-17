@@ -1,10 +1,39 @@
 # Docker Validation — Static Review & Verification Checklist
 
-Docker is **not installed in the CI/audit environment**, so the stack could not be
-brought up (`docker compose up`) during Epic 2 hardening. This document records
-the **static review** (which _was_ performed) and the **runtime checklist** to
-execute once Docker is available (locally or in the `docker-build` /future
-integration CI job).
+The audit sandbox has the Docker client but no Docker daemon, so the compose stack (`docker compose up`)
+has never been brought up there. This document records the **static review**, what the CI
+**`container-smoke`** job now runs against the built images, and the **runtime checklist** for the compose
+stack, which is still not executed anywhere.
+
+## What CI runs against the images (`container-smoke` job)
+
+Everything uses CI-only synthetic configuration and disposable PostGIS and Redis service containers; no
+production credential, host or IdP is involved. The job passed on `e34c3b7` (all steps green).
+
+| Check                                                                                                                                                          | Where it is asserted                                           |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| API image builds and `alembic upgrade head` runs inside it as `satrak_migrator`                                                                                | steps "Build API image", "Migrate using the API image"         |
+| API starts with `SATRAK_API_ENVIRONMENT=production`, the application database role `satrak_app`, Redis, an unreachable issuer (`idp.invalid`)                  | step "API starts with production settings"                     |
+| `GET /api/v1/health/live` and `/health/ready` return 200                                                                                                       | same step                                                      |
+| Entrypoint user is `satrak`, uid is not 0, and no process in the container runs as root                                                                        | step "API process is not root"                                 |
+| The image `HEALTHCHECK` reaches `healthy`                                                                                                                      | step "Image HEALTHCHECK reports healthy"                       |
+| Schema-owner role as the application role exits non-zero (`unsafe database role`); production without a database exits non-zero (`database_url is required`)   | step "Unsafe configuration is refused"                         |
+| Web image builds (repository-root context, root `.dockerignore`), serves `/` with HTTP 200 and the text `SATRAK`; user is `nextjs`, uid not 0, no root process | steps "Build Web image", "Web starts as non-root and serves /" |
+
+**Startup does not need the IdP.** Established from code (`build_auth_runtime` only creates an HTTP client;
+keys are fetched lazily on the first token) and by test: the same configuration with an unreachable issuer
+started and answered `live` and `ready` with 200, both in a local non-container run and in the CI job.
+
+**Not proven by this job:** token validation (no IdP exists in CI), IdP-side revocation (R4), network controls
+(R5, R6), tenant isolation of a real deployment, or behaviour under load. A passing smoke job says the images
+start under production settings and refuse two unsafe configurations; it does not make SATRAK production-ready.
+`NEXT_PUBLIC_*` values are build-time; the Web image is built with `SKIP_ENV_VALIDATION=true`, so the smoke
+test does not exercise production URLs.
+
+Local, non-container cross-checks run before the job existed: the API under the same environment (valid
+configuration answered `live`/`ready` 200; owner role exited with code 3; empty database URL exited 1) and the
+Next.js standalone server (`node apps/web/server.js` answered `/` with 200 containing `SATRAK`). These were not
+run inside images.
 
 ## Static review — findings
 
@@ -16,11 +45,11 @@ Reviewed: `apps/api/Dockerfile`, `apps/web/Dockerfile`,
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------ |
 | **API image**        | Multi-stage (builder → slim runtime); no build toolchain in final image                                                                    | ✅ good                  |
 | **API image**        | Runs as non-root `satrak` user                                                                                                             | ✅ good                  |
-| **API image**        | GDAL/GEOS runtime libs present for GeoAlchemy2/Shapely                                                                                     | ✅ good                  |
-| **API image**        | `curl` present → `HEALTHCHECK` can run                                                                                                     | ✅ good                  |
-| **API image**        | `HEALTHCHECK` hits `/api/v1/health/live`                                                                                                   | ✅ good                  |
-| **Web image (prod)** | `apps/web/Dockerfile` multi-stage, Node 20 slim, standalone output (gated on `BUILD_STANDALONE=true`)                                      | ✅ good                  |
-| **Web (compose)**    | Compose runs `node:20-slim` with an inline `pnpm install`/dev server (HMR), **not** the prod Dockerfile — an intentional dev-vs-prod split | ✅ by design (noted)     |
+| **API image**        | No GDAL/GEOS or other `-dev` packages in runtime: none is used (a future adapter adds its own); CI asserts                                 | ✅ good                  |
+| **API image**        | No `curl`; `HEALTHCHECK` = `python /app/healthcheck.py` (stdlib; healthy only on HTTP 200)                                                 | ✅ good                  |
+| **API image**        | `HEALTHCHECK` hits `/api/v1/health/live` on `127.0.0.1:8000`                                                                               | ✅ good                  |
+| **Web image (prod)** | `apps/web/Dockerfile` multi-stage, Node 22 (digest-pinned `node:22-trixie-slim`), standalone output (gated on `BUILD_STANDALONE=true`)     | ✅ good                  |
+| **Web (compose)**    | Compose runs `node:22-slim` with an inline `pnpm install`/dev server (HMR), **not** the prod Dockerfile — an intentional dev-vs-prod split | ✅ by design (noted)     |
 | **Compose**          | Healthchecks on postgis, redis, api                                                                                                        | ✅ good                  |
 | **Compose**          | `depends_on: condition: service_healthy` for api→(postgis,redis)                                                                           | ✅ correct startup order |
 | **Compose**          | Named volumes for postgis/redis/node_modules                                                                                               | ✅ persistent + fast     |
@@ -65,11 +94,11 @@ make up                                   # docker compose up -d --build
       before starting (no crash loop).
 - [ ] **Volumes persist**: `make down` then `make up` — postgis data survives.
 - [ ] **Image build (CI parity)**: the `docker-build` CI job builds both images
-      without push.
+      without push; the `container-smoke` job also starts them (see above).
 
 ## Follow-up (tracked, not blocking Epic 2)
 
 1. Add an integration-test CI job that runs this checklist against the compose
-   stack (currently only image _build_ is verified in CI).
+   stack (CI now starts the two images with service containers, but not the compose stack).
 2. Consider an `api` compose entrypoint that runs `alembic upgrade head` before
    uvicorn **in dev only**, guarded by `SATRAK_API_ENVIRONMENT=development`.

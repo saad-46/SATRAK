@@ -58,3 +58,15 @@ class ConcurrencyConflict(DomainError):
     """Optimistic-concurrency check failed (stale version)."""
 
     code = "concurrency_conflict"
+
+
+class InvalidStateTransition(DomainError):
+    """The requested state change is not allowed from the current state."""
+
+    code = "invalid_state_transition"
+
+
+class VerificationRequiredError(DomainError):
+    """An unverified finding was offered to a workflow that accepts only verified findings."""
+
+    code = "verification_required"

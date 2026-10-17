@@ -10,10 +10,13 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Response
+import asyncio
+import time
+
+import structlog
+from fastapi import APIRouter, Request, Response
 from sqlalchemy import text
 
-from app.api.deps import SettingsDep
 from app.db.session import get_engine
 from app.schemas.base import DependencyStatus, HealthStatus, ReadinessStatus
 
@@ -25,39 +28,60 @@ async def liveness() -> HealthStatus:
     return HealthStatus(status="ok")
 
 
+logger = structlog.get_logger("api.health")
+
+
+_CACHE_SECONDS = 2.0  # bounds database/Redis probing no matter how often this is called
+_PROBE_TIMEOUT_SECONDS = 2.0
+
+
 async def _check_database() -> DependencyStatus:
     try:
-        engine = get_engine()
-        async with engine.connect() as conn:
-            await conn.execute(text("SELECT 1"))
+        async with asyncio.timeout(_PROBE_TIMEOUT_SECONDS):
+            async with get_engine().connect() as conn:
+                await conn.execute(text("SELECT 1"))
         return DependencyStatus(name="database", healthy=True)
     except Exception as exc:
-        return DependencyStatus(name="database", healthy=False, detail=str(exc))
+        logger.warning("readiness_check_failed", dependency="database", cause=str(exc))
+        return DependencyStatus(name="database", healthy=False, detail="unavailable")
 
 
-async def _check_redis(settings: SettingsDep) -> DependencyStatus:
-    if settings.redis_url is None:
-        return DependencyStatus(name="redis", healthy=False, detail="not configured")
+async def _check_redis(request: Request) -> DependencyStatus:
+    client = getattr(request.app.state, "redis_client", None)
+    if client is None:
+        return DependencyStatus(name="redis", healthy=False, detail="unavailable")
     try:
-        # Lazy import so the app boots even if redis isn't installed locally.
-        from redis.asyncio import Redis
-
-        client = Redis.from_url(str(settings.redis_url))
-        try:
-            await client.ping()
-        finally:
-            await client.aclose()
+        async with asyncio.timeout(_PROBE_TIMEOUT_SECONDS):
+            await client.ping()  # the shared, bounded pool: no new connection per probe
         return DependencyStatus(name="redis", healthy=True)
     except Exception as exc:
-        return DependencyStatus(name="redis", healthy=False, detail=str(exc))
+        logger.warning("readiness_check_failed", dependency="redis", cause=str(exc))
+        return DependencyStatus(name="redis", healthy=False, detail="unavailable")
 
 
-@router.get("/ready", response_model=ReadinessStatus, summary="Readiness probe")
-async def readiness(settings: SettingsDep, response: Response) -> ReadinessStatus:
-    dependencies = [await _check_database(), await _check_redis(settings)]
-    all_healthy = all(dep.healthy for dep in dependencies)
-    response.status_code = 200 if all_healthy else 503
-    return ReadinessStatus(
-        status="ready" if all_healthy else "degraded",
-        dependencies=dependencies,
-    )
+@router.get(
+    "/ready",
+    response_model=ReadinessStatus,
+    summary="Readiness probe",
+)
+async def readiness(request: Request, response: Response) -> ReadinessStatus:
+    cached = getattr(request.app.state, "readiness_cache", None)
+    if cached is None or time.monotonic() - cached[0] > _CACHE_SECONDS:
+        lock = getattr(request.app.state, "readiness_lock", None)
+        if lock is None:  # one probe at a time: concurrent callers share its result
+            lock = request.app.state.readiness_lock = asyncio.Lock()
+        async with lock:
+            cached = getattr(request.app.state, "readiness_cache", None)  # filled while waiting
+            if cached is None or time.monotonic() - cached[0] > _CACHE_SECONDS:
+                dependencies = [await _check_database(), await _check_redis(request)]
+                healthy = all(dep.healthy for dep in dependencies)
+                cached = (
+                    time.monotonic(),
+                    ReadinessStatus(
+                        status="ready" if healthy else "degraded", dependencies=dependencies
+                    ),
+                )
+                request.app.state.readiness_cache = cached
+    status = cached[1]
+    response.status_code = 200 if status.status == "ready" else 503
+    return status

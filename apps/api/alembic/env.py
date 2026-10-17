@@ -16,7 +16,8 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from app.core.config import get_settings
+from app.core.config import DatabaseUrlSettings
+from app.db import models  # noqa: F401  (register tables on the metadata)
 from app.db.base import Base
 
 config = context.config
@@ -24,13 +25,24 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Inject the runtime database URL (foundation has no domain models yet, so
-# target_metadata currently describes only the PostGIS extension migration).
-settings = get_settings()
-if settings.database_url is not None:
-    config.set_main_option("sqlalchemy.url", str(settings.database_url))
+# Inject the runtime database URL. Only the URL is read (not the full application
+# settings), so migrations run without any authentication configuration.
+_url_settings = DatabaseUrlSettings()
+database_url = _url_settings.migration_database_url or _url_settings.database_url
+if database_url is not None:
+    config.set_main_option("sqlalchemy.url", str(database_url))
 
 target_metadata = Base.metadata
+
+# Tables owned by the PostGIS / postgis_topology extensions, not by this application.
+_EXTENSION_TABLES = frozenset({"spatial_ref_sys", "topology", "layer"})
+
+
+def include_object(
+    obj: object, name: str | None, type_: str, reflected: bool, compare_to: object
+) -> bool:
+    """Keep extension-owned tables out of autogenerate (they are not in our metadata)."""
+    return not (type_ == "table" and reflected and name in _EXTENSION_TABLES)
 
 
 def run_migrations_offline() -> None:
@@ -41,6 +53,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
+        include_object=include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -51,6 +64,7 @@ def do_run_migrations(connection: Connection) -> None:
         connection=connection,
         target_metadata=target_metadata,
         compare_type=True,
+        include_object=include_object,
     )
     with context.begin_transaction():
         context.run_migrations()

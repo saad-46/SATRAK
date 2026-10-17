@@ -201,19 +201,19 @@ Each module below corresponds to a bounded context. Where a module maps directly
 - **Events Published:** `encroachment.flagged`, `boundary_data.stale` (data-quality alert per TDD Section 14).
 
 ## 2.10 AI (`ai-orchestration-service`)
-- **Responsibilities:** Coordinates the full model pipeline per tile/parcel (building detection → change detection → risk scoring), version routing, confidence thresholding before case creation.
+- **Responsibilities:** Coordinates the full model pipeline per tile/parcel (building detection → change detection → risk scoring), version routing, confidence thresholding before candidate creation (cases are created only after officer verification).
 - **Dependencies:** Satellite/Drone modules (inputs), GIS module (parcel correlation), model-serving infrastructure in `ai/serving`.
 - **Database Tables:** `inference_runs` (model version, input tile ID, output reference, confidence — the audit trail described in TDD Section 5), `model_versions`, `model_rollout_config`.
 - **Services:** `InferenceOrchestratorService`, `ModelRegistryService`, `ConfidenceThresholdService`.
 - **API Layer:** `GET /ai/detections/{tileId}`, `GET /ai/risk-score/{caseId}`, `POST /ai/models/{id}/rollout` (admin).
 - **Repository Layer:** `InferenceRunRepository`, `ModelVersionRepository`.
 - **Background Jobs:** Batch inference consumer (reads from `tiles.ready`/`photogrammetry.ready` queue), nightly model-drift monitoring job.
-- **Events Published:** `detection.completed`, `case.candidate_created` (consumed by Case Service).
+- **Events Published:** `detection.completed`, `candidate.created` (consumed by the candidate review queue; supersedes `case.candidate_created`, see ADR-0014 Amendment 1). The AI module never creates a case.
 
 ## 2.11 Inspection / Case (`case-service`)
-- **Responsibilities:** Owns the case lifecycle end-to-end (Detected → Under Review → Drone Dispatched → Inspected → Notice Issued → Resolved/Escalated); the central orchestration point of the whole platform.
-- **Dependencies:** AI module (candidate cases), Drone module (dispatch), GIS module (parcel context), Notification module, Audit module.
-- **Database Tables:** `cases`, `case_status_history`, `case_assignments`, `case_evidence` (references to satellite/drone imagery + AI outputs), `officer_reviews`.
+- **Responsibilities:** Owns the candidate review and the case lifecycle. Candidates start `unverified` (the former "Detected") and are reviewed by an authorized officer (`candidate_review`, append-only); a case exists only for a `confirmed` candidate and then runs Created → Assigned → Under Investigation → Notice Issued → Resolved/Dismissed (drone dispatch and escalation states to be added per FR-2/FR-10 decisions). Terminology and gate: ADR-0014 Amendment 1; the central orchestration point of the whole platform.
+- **Dependencies:** AI module (candidates, via `candidate.created`), Drone module (dispatch), GIS module (parcel context), Notification module, Audit module.
+- **Database Tables:** `cases`, `case_status_history`, `case_assignments`, `case_evidence` (references to satellite/drone imagery + AI outputs), `officer_reviews` (implemented as `candidate_review`, reviewing candidates, not cases).
 - **Services:** `CaseLifecycleService`, `AssignmentService`, `SlaTrackingService`.
 - **API Layer:** `GET/POST/PATCH /cases`, `POST /cases/{id}/assign`, `POST /cases/{id}/dispatch-drone`, `POST /cases/{id}/review`.
 - **Repository Layer:** `CaseRepository`, `CaseHistoryRepository`.

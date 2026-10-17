@@ -102,7 +102,7 @@ describe("case detail", () => {
     expect(
       screen.queryByRole("button", { name: /dismiss|resolve|issue notice/i }),
     ).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^assign|reassign/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^(re)?assign/i })).not.toBeInTheDocument();
     expect(await screen.findByText(/Case finding #1 \(field inspection\)/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /candidate aaaaaaaa/i })).toBeInTheDocument();
   });

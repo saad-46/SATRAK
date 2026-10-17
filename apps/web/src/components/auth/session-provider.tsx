@@ -14,7 +14,7 @@ import {
 import { onUnauthorized } from "@/lib/api/client";
 import { consoleApi, type Me } from "@/lib/api/endpoints";
 import { ApiError } from "@/lib/api/types";
-import { clearToken, getToken, subscribeToken } from "@/lib/auth/token-source";
+import { clearToken, getToken, subscribeToken, tokenEpoch } from "@/lib/auth/token-source";
 import { can as canPermission } from "@/lib/permissions";
 
 export type SessionStatus =
@@ -40,6 +40,7 @@ export function useSession(): Session {
 export function SessionProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const token = useSyncExternalStore(subscribeToken, getToken, () => null);
+  const epoch = useSyncExternalStore(subscribeToken, tokenEpoch, () => 0);
   const [expired, setExpired] = useState(false);
 
   useEffect(
@@ -56,7 +57,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [token]);
 
   const meQuery = useQuery({
-    queryKey: ["me", token],
+    queryKey: ["me", epoch],
     queryFn: consoleApi.me,
     enabled: Boolean(token),
     retry: false,

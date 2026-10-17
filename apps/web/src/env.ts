@@ -15,10 +15,15 @@ export const env = createEnv({
     NEXT_PUBLIC_APP_ENV: z
       .enum(["development", "staging", "production", "test"])
       .default("development"),
+    // Opt-in (default off). Enables the development-only pasted-token sign-in; ignored when
+    // NEXT_PUBLIC_APP_ENV is "production" and refused outright by next.config.ts for the
+    // production image build. Inlined at build time, so it cannot be flipped on a running image.
+    NEXT_PUBLIC_ENABLE_DEV_TOKEN: z.enum(["true", "false"]).default("false"),
   },
   runtimeEnv: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
     NEXT_PUBLIC_APP_ENV: process.env.NEXT_PUBLIC_APP_ENV,
+    NEXT_PUBLIC_ENABLE_DEV_TOKEN: process.env.NEXT_PUBLIC_ENABLE_DEV_TOKEN,
   },
   // Allow the build to proceed in CI without a real .env (skips validation when
   // explicitly requested); normal dev/prod runs validate.

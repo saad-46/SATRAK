@@ -123,6 +123,27 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ---------------------------------------------------------------------------
+  # JavaScript dependency audit: fails on any known high or critical advisory in the production
+  # dependency graph of the workspace (what the web image is built from). Dev-only tooling is not
+  # gated here. It queries the live advisory database, so a newly published advisory can turn this
+  # red without a code change; fix it by bumping or pinning the package (see pnpm.overrides).
+  # ---------------------------------------------------------------------------
+  js-audit:
+    name: JS dependency audit (pnpm audit --prod)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Audit production dependencies (high and critical fail)
+        run: pnpm audit --prod --audit-level=high
+
+  # ---------------------------------------------------------------------------
   # Database migration validation against a real PostGIS instance
   # ---------------------------------------------------------------------------
   migrations:

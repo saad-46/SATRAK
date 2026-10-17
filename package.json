@@ -2,7 +2,7 @@
   "name": "satrak",
   "version": "0.1.0",
   "private": true,
-  "description": "SATRAK — AI-Powered Government Urban Compliance Intelligence Platform (monorepo root)",
+  "description": "SATRAK \u2014 AI-Powered Government Urban Compliance Intelligence Platform (monorepo root)",
   "packageManager": "pnpm@9.15.9",
   "engines": {
     "node": ">=20.0.0",
@@ -30,7 +30,9 @@
   },
   "pnpm": {
     "overrides": {
-      "next>postcss": "8.5.29"
+      "next>postcss": "8.5.29",
+      "browserslist": "4.28.9",
+      "baseline-browser-mapping": "2.11.26"
     }
   }
 }

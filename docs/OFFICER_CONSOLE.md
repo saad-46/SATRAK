@@ -64,7 +64,7 @@ All paths are under `/api/v1`. "Server validation" is authoritative; "client val
 
 Skip link, `main` landmark, labelled `nav`s, breadcrumbs (`aria-current`), table captions and `scope` headers, form labels, `role=dialog` modals with `aria-modal`, labelled/described, focus trap, Esc, focus return; polite live regions for results; `role=alert` for failures; status never conveyed by colour alone; `prefers-reduced-motion` disables animation; visible `:focus-visible` ring; tables scroll horizontally on narrow screens; mobile navigation toggle with `aria-expanded`. Visual direction: deep navy/indigo tokens in `globals.css` (dark default, light available), no decorative transparency on text.
 
-`axe-core` is **not installed** and was not added: the repository has no written dependency policy, and the practice it does show (frozen lockfile, digest-pinned images, Dependabot, pnpm/pip audit expectations) means a new test dependency needs an explicit approval. In its place the repository now has (a) the structural audit `src/test/a11y-audit.ts` (names, labels, `alt`, table headers, ids, heading order) and (b) real-browser checks in `e2e/a11y.spec.ts`; see "Pre-push review". Recommended follow-up (needs approval): add `@axe-core/playwright` as a dev dependency.
+`@axe-core/playwright` 4.13.0 (exact pin, test-only, MPL-2.0, released 2026-08-11, the newest stable release older than two weeks) was added locally on 2026-10-17 at Saad's request to validate and commit it (not yet pushed). `e2e/axe.spec.ts` scans sign-in, dashboard, candidate, case, activity and the open verify dialog against WCAG 2.0/2.1/2.2 A and AA rules in light and dark: 0 violations, and a negative control proves the scan reports a missing `alt` and an unnamed button. Automated rules find only part of the problems; the structural audit `src/test/a11y-audit.ts` and the Chromium checks in `e2e/a11y.spec.ts` remain, and a manual screen-reader pass is still required.
 
 ## Verification (2026-10-11, local)
 
@@ -151,7 +151,7 @@ Y = implemented and tested, P = partial, N = not implemented, ? = unmeasured.
 3. Imagery rendering and before/after comparison: needs the imagery/tile service and an authorised provenance chain; references only today.
 4. SLA clocks, free-text search, automatic assignment, exports: absent upstream.
 5. Evidence upload for case findings: needs the evidence store.
-6. `axe-core` (needs approval), a manual screen-reader pass with a real product (NVDA, JAWS, VoiceOver), non-text contrast (WCAG 1.4.11) and target-size measurement. The new `e2e` CI job has not run on GitHub yet.
+6. A manual screen-reader pass with a real product (NVDA, JAWS, VoiceOver), non-text contrast (WCAG 1.4.11) and target-size measurement. The new `e2e` CI job has not run on GitHub yet.
 7. Cross-browser and device testing; performance budgets (NFR-8.1) unmeasured.
 8. CodeQL's 82 alerts on PR #14 are triaged in `docs/audit/CODEQL_PR14_TRIAGE.md` (0 security alerts; alert ids and dismissal state were not readable from this session, so nothing was dismissed). Commits `ad70820` and `f5efe4e` change Python files that CodeQL has not scanned.
 9. Accessibility residuals after the pre-push fixes: no screen-reader product was run (only the browser's accessibility tree was inspected); non-text contrast (focus ring, borders, icons) and target size were not measured; many controls are 32-36 px high (WCAG 2.2 AA target size minimum is 24 px; 44 px is AAA).

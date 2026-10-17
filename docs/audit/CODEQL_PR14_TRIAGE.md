@@ -15,3 +15,18 @@ All 82 are Python **code-quality** rules, not security rules. None of them is in
 |     | **Duplicates**: rules 1 and 2 repeat the same pattern across files; none of the 82 duplicates another alert at the same location. |
 
 Summary: 0 confirmed vulnerabilities; 0 security-rule alerts; 1 valid low-severity design note (#5); the rest are false positives or intentional patterns. Recommended (needs Saad's decision, not done): configure a CodeQL query-filter to exclude `py/ineffectual-statement` for `Protocol` bodies and `py/unused-global-variable` for `alembic/versions/`, with this document as the justification, rather than dismissing individual alerts. Re-run after the next push to see whether the officer-console Python changes raise any new alert; the commits `ad70820` and `f5efe4e` touch Python files and have not been scanned.
+
+## Proposed alert filter (not applied)
+
+A filter was drafted but **not committed**: the rule ids could not be confirmed from this session (the SARIF artifact download is blocked by the egress proxy and access to the `github/codeql` repository is outside this session's scope), and CodeQL cannot run locally, so the configuration could not be validated. Draft `.github/codeql/codeql-config.yml`, to be referenced from `codeql.yml` with `config-file:`:
+
+```yaml
+name: satrak-codeql
+query-filters:
+  - exclude:
+      id: py/ineffectual-statement # Protocol/ABC method bodies (`...`)
+  - exclude:
+      id: py/unused-global-variable # Alembic revision identifiers
+```
+
+Both are code-quality rules, not security rules; security queries stay enabled everywhere. A wrong id is silently ignored, so after pushing, confirm in the SARIF artifact that `py/ineffectual-statement` and `py/unused-global-variable` are the ids of the 58 and 17 alerts before relying on the filter.

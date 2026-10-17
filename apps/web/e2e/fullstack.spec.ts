@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
 /**
@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
  */
 const file = process.env.E2E_STACK_FILE;
 test.skip(!file, "E2E_STACK_FILE not set: no real API stack running");
-test.describe.configure({ mode: "serial" });
+test.describe.configure({ mode: "serial", retries: 0 }); // the journey mutates the database: no retries
 
 interface Stack {
   tokens: Record<string, string>;
@@ -53,6 +53,69 @@ test("a supervisor can read the candidate but is not offered verification", asyn
   await expect(page.getByRole("heading", { name: "Officer conclusion" })).toBeVisible();
   await expect(page.getByText(/does not include verification/i)).toBeVisible();
   await expect(page.getByRole("button", { name: "Verify candidate" })).toHaveCount(0);
+});
+
+/**
+ * UI bypass: the console hides controls the server would refuse, but the server must refuse them
+ * itself. These call the API directly with real tokens and prove the denial is enforced by the API
+ * and the database (RLS, permission checks, release gate), not by the interface.
+ */
+const API = process.env.E2E_API_URL ?? "http://127.0.0.1:8000/api/v1";
+const call = (
+  request: APIRequestContext,
+  who: string,
+  method: "GET" | "POST",
+  path: string,
+  data?: unknown,
+) =>
+  request.fetch(`${API}${path}`, {
+    method,
+    data,
+    headers: { Authorization: `Bearer ${stack().tokens[who]!}` },
+  });
+
+test.describe("API denials that do not depend on the UI", () => {
+  const review = { decision: "confirm", justification: "Attempted without the verify permission." };
+
+  test("no token is rejected before any data is read", async ({ request }) => {
+    const r = await request.fetch(`${API}/candidates/${stack().candidate_id}`);
+    expect(r.status()).toBe(401);
+  });
+
+  test("a supervisor without finding:verify cannot record a decision", async ({ request }) => {
+    const r = await call(
+      request,
+      "supervisor",
+      "POST",
+      `/candidates/${stack().candidate_id}/reviews`,
+      review,
+    );
+    expect(r.status()).toBe(403);
+    const after = await call(request, "supervisor", "GET", `/candidates/${stack().candidate_id}`);
+    expect((await after.json()).status).toBe("unverified");
+  });
+
+  test("another jurisdiction's officer can neither read, decide nor open a case", async ({
+    request,
+  }) => {
+    const id = stack().candidate_id;
+    expect((await call(request, "outsider", "GET", `/candidates/${id}`)).status()).toBe(404);
+    const decide = await call(request, "outsider", "POST", `/candidates/${id}/reviews`, review);
+    expect([403, 404]).toContain(decide.status());
+    const open = await call(request, "outsider", "POST", "/cases", { candidate_id: id });
+    expect([403, 404]).toContain(open.status());
+  });
+
+  test("the release gate refuses a case for an unverified candidate, even for the reviewer", async ({
+    request,
+  }) => {
+    const r = await call(request, "reviewer", "POST", "/cases", {
+      candidate_id: stack().candidate_id,
+    });
+    expect([409, 422]).toContain(r.status());
+    const list = await call(request, "reviewer", "GET", "/cases");
+    expect((await list.json()).items).toHaveLength(0);
+  });
 });
 
 test("reviewer: dashboard, candidate, verify, open case, assign, investigate, field finding", async ({

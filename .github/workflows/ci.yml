@@ -281,7 +281,6 @@ jobs:
       # Disposable CI-only credentials for a service container that is destroyed with the job.
       SATRAK_TEST_DATABASE_URL: postgresql+asyncpg://satrak_owner:satrak_ci_owner@localhost:5432/satrak_test
       SATRAK_TEST_REDIS_URL: redis://localhost:6379/0
-      E2E_STACK_FILE: ${{ runner.temp }}/e2e-stack.json
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -324,6 +323,8 @@ jobs:
           NEXT_PUBLIC_ENABLE_DEV_TOKEN: "true"
       - name: Start the real API (rebuilds the schema, seeds synthetic rows)
         working-directory: apps/api
+        env:
+          E2E_STACK_FILE: ${{ runner.temp }}/e2e-stack.json
         run: |
           nohup python -m tests.e2e_stack.serve "$E2E_STACK_FILE" > "$RUNNER_TEMP/e2e-api.log" 2>&1 &
           for _ in $(seq 1 60); do
@@ -334,6 +335,8 @@ jobs:
           echo "::error::API stack did not become ready"; tail -n 50 "$RUNNER_TEMP/e2e-api.log"; exit 1
       - name: Playwright (stubbed journeys · accessibility · real-API journey and denials)
         run: pnpm --filter @satrak/web test:e2e
+        env:
+          E2E_STACK_FILE: ${{ runner.temp }}/e2e-stack.json
       - name: Upload Playwright traces and API log
         if: failure()
         uses: actions/upload-artifact@v4
